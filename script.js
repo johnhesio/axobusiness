@@ -1,5 +1,5 @@
 /**
- * AXÔ Business - Completo c/ Mapas, QR Code, Assinatura e WhatsApp
+ * AXÔ Business - Completo e Seguro (Proteções XSS e Senhas em Hash)
  */
 
 let appData = {
@@ -19,9 +19,32 @@ let ctxSignature = null;
 let isDrawing = false;
 let qrCodeScanner = null;
 
-document.addEventListener("DOMContentLoaded", () => {
+// ================= SEGURANÇA E PROTEÇÃO (XSS e Criptografia) =================
+
+// Função para sanitizar entradas e evitar ataques XSS
+function escapeHTML(str) {
+  if (!str) return "";
+  return str
+    .toString()
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+// Criptografia nativa SHA-256 para senhas (Não guarda em texto puro)
+async function hashPassword(password) {
+  const msgBuffer = new TextEncoder().encode(password);
+  const hashBuffer = await crypto.subtle.digest("SHA-256", msgBuffer);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+// ================= INICIALIZAÇÃO =================
+document.addEventListener("DOMContentLoaded", async () => {
   carregarDados();
-  garantirAdminPadrao();
+  await garantirAdminPadrao();
   aplicarTemaAtual();
   verificarSessao();
   configurarNavegacao();
@@ -51,7 +74,11 @@ function showToast(message, type = "success") {
       : type === "error"
         ? "fa-circle-xmark"
         : "fa-info-circle";
-  toast.innerHTML = `<i class="fa-solid ${icon}"></i> <span>${message}</span>`;
+
+  // Usamos textContent/innerText para injetar a mensagem no toast com segurança (prevenção extra XSS)
+  toast.innerHTML = `<i class="fa-solid ${icon}"></i> <span class="toast-msg"></span>`;
+  toast.querySelector(".toast-msg").textContent = message;
+
   container.appendChild(toast);
   setTimeout(() => toast.classList.add("show"), 10);
   setTimeout(() => {
@@ -61,15 +88,16 @@ function showToast(message, type = "success") {
 }
 
 // ================= AUTENTICAÇÃO E PERMISSÕES =================
-function garantirAdminPadrao() {
+async function garantirAdminPadrao() {
   if (appData.usuarios.length === 0) {
+    const hashedPassword = await hashPassword("admin");
     appData.usuarios.push({
       id: "usr_" + Date.now(),
       nome: "Administrador",
       cpf: "",
       telefone: "",
       email: "admin@axo.com",
-      senha: "admin",
+      senha: hashedPassword, // Hash gerado, senha não lida
       role: "admin",
     });
     salvarDadosSilencioso();
@@ -86,16 +114,22 @@ function verificarSessao() {
   }
 }
 
-function realizarLogin(e) {
+async function realizarLogin(e) {
   e.preventDefault();
   const emailStr = document.getElementById("login-email").value;
   const senhaStr = document.getElementById("login-senha").value;
+
+  const hashedSenha = await hashPassword(senhaStr);
   const u = appData.usuarios.find(
-    (u) => u.email === emailStr && u.senha === senhaStr,
+    (u) => u.email === emailStr && u.senha === hashedSenha,
   );
 
   if (u) {
-    currentUser = u;
+    // Armazena sessão SEM a senha, por segurança
+    const safeUser = { ...u };
+    delete safeUser.senha;
+
+    currentUser = safeUser;
     sessionStorage.setItem("axo_session", JSON.stringify(currentUser));
     showToast(`Bem-vindo, ${u.nome}!`, "success");
     iniciarApp();
@@ -149,69 +183,53 @@ function carregarDados() {
   if (s) {
     try {
       appData = JSON.parse(s);
-    } catch (e) {
-      console.error("Falha ao carregar");
-    }
+    } catch (e) {}
   }
   if (!appData.objetos) appData.objetos = [];
   if (!appData.historico) appData.historico = [];
   if (!appData.usuarios) appData.usuarios = [];
 }
-
 function salvarDados() {
   appData.ultimoBackup = new Date().getTime();
   localStorage.setItem("axo_data", JSON.stringify(appData));
   atualizarTextoUltimoBackup();
   salvarAutoBackup();
 }
-
 function salvarDadosSilencioso() {
   localStorage.setItem("axo_data", JSON.stringify(appData));
   salvarAutoBackup();
 }
-
 function salvarAutoBackup() {
   localStorage.setItem("axo_data_autobackup", JSON.stringify(appData));
 }
-
 function atualizarTextoUltimoBackup() {
   const el = document.getElementById("last-backup-text");
-  if (appData.ultimoBackup && el) {
+  if (appData.ultimoBackup && el)
     el.innerText = `Último salvamento: ${new Date(appData.ultimoBackup).toLocaleString("pt-BR")}`;
-  }
 }
 
 // ================= NAVEGAÇÃO E TEMAS =================
 function configurarNavegacao() {
   document.querySelectorAll(".nav-item[data-target]").forEach((btn) => {
     btn.addEventListener("click", (e) => {
-      // Remove active classes
       document
         .querySelectorAll(".nav-item")
         .forEach((t) => t.classList.remove("active"));
       document
         .querySelectorAll(".view-section")
         .forEach((sec) => sec.classList.add("hidden"));
-
-      // Add active class to clicked
       btn.classList.add("active");
       const targetId = btn.getAttribute("data-target");
       document.getElementById(targetId).classList.remove("hidden");
-
-      // Update Page Title
       const pt = document.getElementById("current-page-title");
       if (pt) pt.innerText = btn.getAttribute("data-title");
 
-      // Trigger specific renders
       if (targetId === "view-dashboard") renderDashboard();
       if (targetId === "view-historico") renderHistorico();
       if (targetId === "view-usuarios" && currentUser.role === "admin")
         renderUsuarios();
-
-      // Close mobile menu
-      if (window.innerWidth <= 768) {
+      if (window.innerWidth <= 768)
         document.getElementById("sidebar").classList.remove("mobile-open");
-      }
     });
   });
 
@@ -221,19 +239,16 @@ function configurarNavegacao() {
     salvarDadosSilencioso();
     renderDashboard();
   });
-
   document.getElementById("toggle-sidebar").addEventListener("click", () => {
     document.getElementById("sidebar").classList.toggle("collapsed");
     setTimeout(() => {
       if (dashChart) dashChart.resize();
     }, 300);
   });
-
   document.getElementById("mobile-menu-btn").addEventListener("click", () => {
     document.getElementById("sidebar").classList.toggle("mobile-open");
   });
 }
-
 function aplicarTemaAtual() {
   document.documentElement.setAttribute("data-theme", appData.theme);
   const icon = document.querySelector("#theme-btn i");
@@ -241,7 +256,6 @@ function aplicarTemaAtual() {
     icon.className =
       appData.theme === "dark" ? "fa-solid fa-sun" : "fa-solid fa-moon";
 }
-
 function openModal(id) {
   document.getElementById(id).classList.add("active");
 }
@@ -266,7 +280,6 @@ function initMap() {
     marker = L.marker([-3.7319, -38.5267], { draggable: true }).addTo(
       leafletMap,
     );
-
     leafletMap.on("click", function (e) {
       updateMarker(e.latlng.lat, e.latlng.lng);
     });
@@ -277,7 +290,6 @@ function initMap() {
   }
   setTimeout(() => leafletMap.invalidateSize(), 300);
 }
-
 function updateMarker(lat, lng) {
   if (marker) {
     marker.setLatLng([lat, lng]);
@@ -309,7 +321,6 @@ function processarImagem(event) {
   };
   reader.readAsDataURL(file);
 }
-
 function removerFoto() {
   currentImageB64 = null;
   document.getElementById("obj-foto").value = "";
@@ -326,7 +337,7 @@ function gerarEtiquetaQR(id, nome) {
     colorDark: "#643698",
     colorLight: "#ffffff",
   });
-  document.getElementById("qrcode-obj-name").innerText = nome;
+  document.getElementById("qrcode-obj-name").innerText = nome; // innerText is Safe from XSS
   openModal("modal-qrcode");
 }
 
@@ -340,14 +351,12 @@ function abrirLeitorQR() {
   );
   qrCodeScanner.render(onScanSuccess, onScanFailure);
 }
-
 function fecharLeitorQR() {
   if (qrCodeScanner) {
     qrCodeScanner.clear();
   }
   closeModal("modal-leitor");
 }
-
 function onScanSuccess(decodedText) {
   fecharLeitorQR();
   showToast("QR Code Lido!", "success");
@@ -355,7 +364,6 @@ function onScanSuccess(decodedText) {
   document.getElementById("filter-search").value = decodedText;
   renderObjetos();
 }
-
 function onScanFailure(error) {
   /* Ignore */
 }
@@ -364,7 +372,6 @@ function onScanFailure(error) {
 function setupSignaturePad() {
   signaturePad = document.getElementById("signature-pad");
   ctxSignature = signaturePad.getContext("2d");
-
   const startDraw = (e) => {
     isDrawing = true;
     draw(e);
@@ -379,7 +386,6 @@ function setupSignaturePad() {
     const rect = signaturePad.getBoundingClientRect();
     const clientX = e.touches ? e.touches[0].clientX : e.clientX;
     const clientY = e.touches ? e.touches[0].clientY : e.clientY;
-
     ctxSignature.lineWidth = 3;
     ctxSignature.lineCap = "round";
     ctxSignature.strokeStyle = "#000";
@@ -388,7 +394,6 @@ function setupSignaturePad() {
     ctxSignature.beginPath();
     ctxSignature.moveTo(clientX - rect.left, clientY - rect.top);
   };
-
   signaturePad.addEventListener("mousedown", startDraw);
   signaturePad.addEventListener("mousemove", draw);
   signaturePad.addEventListener("mouseup", stopDraw);
@@ -397,21 +402,17 @@ function setupSignaturePad() {
   signaturePad.addEventListener("touchmove", draw, { passive: false });
   signaturePad.addEventListener("touchend", stopDraw);
 }
-
 function limparAssinatura() {
   ctxSignature.clearRect(0, 0, signaturePad.width, signaturePad.height);
 }
-
 function abrirAssinatura(id) {
   document.getElementById("signature-obj-id").value = id;
   limparAssinatura();
   openModal("modal-assinatura");
 }
-
 function confirmarAssinaturaEPDF() {
   const id = document.getElementById("signature-obj-id").value;
   const signatureBase64 = signaturePad.toDataURL("image/png");
-
   const blank = document.createElement("canvas");
   blank.width = signaturePad.width;
   blank.height = signaturePad.height;
@@ -419,18 +420,15 @@ function confirmarAssinaturaEPDF() {
     showToast("Por favor, assine o quadro.", "error");
     return;
   }
-
   closeModal("modal-assinatura");
   gerarTermoPDF(id, signatureBase64);
 }
-
 function gerarTermoPDF(id, signatureB64) {
   const obj = appData.objetos.find((o) => o.id === id);
   if (!obj) return;
   try {
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF();
-
     doc.setFillColor(100, 54, 152);
     doc.rect(0, 0, 210, 40, "F");
     doc.setTextColor(255, 255, 255);
@@ -438,7 +436,6 @@ function gerarTermoPDF(id, signatureB64) {
     doc.text("AXÔ Business", 105, 20, null, null, "center");
     doc.setFontSize(14);
     doc.text("Termo Probatório de Entrega", 105, 30, null, null, "center");
-
     doc.setTextColor(50, 50, 50);
     doc.setFontSize(12);
     let y = 60;
@@ -449,7 +446,6 @@ function gerarTermoPDF(id, signatureB64) {
     );
     y += 10;
     doc.text(`previamente cadastrado no sistema AXÔ Business.`, 20, y);
-
     y += 20;
     doc.setFont("helvetica", "bold");
     doc.text("Detalhes do Objeto:", 20, y);
@@ -462,12 +458,10 @@ function gerarTermoPDF(id, signatureB64) {
     doc.text(`Local de Origem: ${obj.local}`, 20, y);
     y += 10;
     doc.text(`Data do Registro: ${formatarData(obj.data)}`, 20, y);
-
     if (obj.dono) {
       y += 10;
       doc.text(`Reivindicado por: ${obj.dono}`, 20, y);
     }
-
     y += 10;
     const descLines = doc.splitTextToSize(
       `Descrição: ${obj.desc || "Nenhuma"}`,
@@ -475,13 +469,11 @@ function gerarTermoPDF(id, signatureB64) {
     );
     doc.text(descLines, 20, y);
     y += descLines.length * 10 + 15;
-
     doc.text(
       "Declaro para os devidos fins ter recebido o objeto acima descrito.",
       20,
       y,
     );
-
     y += 20;
     doc.addImage(signatureB64, "PNG", 120, y, 60, 30);
     y += 30;
@@ -491,7 +483,6 @@ function gerarTermoPDF(id, signatureB64) {
     doc.setFontSize(10);
     doc.text(`Entregue por: ${currentUser.nome}`, 60, y, null, null, "center");
     doc.text("Assinatura do Recebedor", 150, y, null, null, "center");
-
     doc.setFontSize(8);
     doc.setTextColor(150, 150, 150);
     doc.text(
@@ -519,7 +510,6 @@ function renderDashboard() {
   document.getElementById("stat-entregues").innerText = appData.objetos.filter(
     (o) => o.status === "Entregue",
   ).length;
-
   const datasMap = {};
   for (let i = 6; i >= 0; i--) {
     const d = new Date();
@@ -529,7 +519,6 @@ function renderDashboard() {
   appData.objetos.forEach((obj) => {
     if (datasMap[obj.data] !== undefined) datasMap[obj.data]++;
   });
-
   if (dashChart) dashChart.destroy();
   const isDark = appData.theme === "dark";
   dashChart = new Chart(
@@ -683,6 +672,12 @@ function renderObjetos() {
   }
 
   filtrados.forEach((obj) => {
+    // Sanitizando entradas pro HTML
+    const safeNome = escapeHTML(obj.nome);
+    const safeDesc = escapeHTML(obj.desc);
+    const safeLocal = escapeHTML(obj.local);
+    const safeDono = escapeHTML(obj.dono);
+
     let badgeVencido = "";
     if (obj.status === "Aguardando") {
       const dias = Math.floor(
@@ -696,7 +691,7 @@ function renderObjetos() {
     if (obj.donoTel) {
       const tel = obj.donoTel.replace(/\D/g, "");
       const msg = encodeURIComponent(
-        `Olá ${obj.dono ? obj.dono : ""}, seu objeto "${obj.nome}" foi encontrado e encontra-se na recepção!`,
+        `Olá ${safeDono ? safeDono : ""}, seu objeto "${safeNome}" foi encontrado e encontra-se na recepção!`,
       );
       waBtn = `<button class="btn-action" title="Avisar WhatsApp" style="color:#25D366;" onclick="window.open('https://wa.me/55${tel}?text=${msg}', '_blank')"><i class="fa-brands fa-whatsapp"></i></button>`;
     }
@@ -705,7 +700,7 @@ function renderObjetos() {
       obj.status === "Entregue"
         ? `<button class="btn-action" title="Assinar e Gerar PDF" onclick="abrirAssinatura('${obj.id}')"><i class="fa-solid fa-file-signature"></i></button>`
         : "";
-    const qrBtn = `<button class="btn-action" title="Gerar Etiqueta QR" onclick="gerarEtiquetaQR('${obj.id}', '${obj.nome}')"><i class="fa-solid fa-qrcode"></i></button>`;
+    const qrBtn = `<button class="btn-action" title="Gerar Etiqueta QR" onclick="gerarEtiquetaQR('${obj.id}', '${safeNome}')"><i class="fa-solid fa-qrcode"></i></button>`;
     const imgHtml = obj.foto
       ? `<div class="card-img"><img src="${obj.foto}"></div>`
       : "";
@@ -719,13 +714,13 @@ function renderObjetos() {
     card.innerHTML = `
             ${imgHtml}
             <div class="card-header" style="${obj.foto ? "padding-top:1rem;" : ""}">
-                <div><h3 class="card-title">${obj.nome}</h3>${badgeVencido} <span class="card-date"><i class="fa-regular fa-calendar"></i> ${formatarData(obj.data)}</span></div>
+                <div><h3 class="card-title">${safeNome}</h3>${badgeVencido} <span class="card-date"><i class="fa-regular fa-calendar"></i> ${formatarData(obj.data)}</span></div>
                 <span class="badge ${obj.status.toLowerCase()}">${obj.status}</span>
             </div>
             <div class="card-body">
-                <div class="card-info-item"><i class="fa-solid fa-location-dot"></i> <span>${obj.local}</span> ${mapLink}</div>
-                ${obj.dono ? `<div class="card-info-item"><i class="fa-solid fa-user"></i> <span>Dono: ${obj.dono}</span></div>` : ""}
-                <p class="card-desc">${obj.desc || "<em>Sem descrição</em>"}</p>
+                <div class="card-info-item"><i class="fa-solid fa-location-dot"></i> <span>${safeLocal}</span> ${mapLink}</div>
+                ${safeDono ? `<div class="card-info-item"><i class="fa-solid fa-user"></i> <span>Dono: ${safeDono}</span></div>` : ""}
+                <p class="card-desc">${safeDesc || "<em>Sem descrição</em>"}</p>
             </div>
             <div class="card-actions">
                 ${waBtn} ${qrBtn} ${pdfBtn}
@@ -735,7 +730,7 @@ function renderObjetos() {
   });
 }
 
-// ================= CRUD USUÁRIOS =================
+// ================= CRUD USUÁRIOS E SEGURANÇA =================
 function openUserFormModal(id = null) {
   const formTitle = document.getElementById("modal-user-title");
   if (id) {
@@ -747,60 +742,77 @@ function openUserFormModal(id = null) {
       document.getElementById("usr-cpf").value = usr.cpf;
       document.getElementById("usr-telefone").value = usr.telefone;
       document.getElementById("usr-email").value = usr.email;
-      document.getElementById("usr-senha").value = usr.senha;
+      // Senha deixamos vazia na edição. O usuário preenche só se for alterar
+      document.getElementById("usr-senha").value = "";
+      document.getElementById("usr-senha").required = false; // Não obrigatório na edição
       document.getElementById("usr-role").value = usr.role;
     }
   } else {
     formTitle.innerText = "Novo Usuário";
     document.getElementById("usr-id").value = "";
+    document.getElementById("usr-senha").required = true; // Obrigatório no cadastro
   }
   openModal("modal-user-form");
 }
 
-function salvarUsuario(e) {
+async function salvarUsuario(e) {
   e.preventDefault();
   const idInput = document.getElementById("usr-id").value;
   const nome = document.getElementById("usr-nome").value.trim();
   const cpf = document.getElementById("usr-cpf").value.trim();
   const telefone = document.getElementById("usr-telefone").value.trim();
   const email = document.getElementById("usr-email").value.trim();
-  const senha = document.getElementById("usr-senha").value.trim();
+  const senhaStr = document.getElementById("usr-senha").value.trim();
   const role = document.getElementById("usr-role").value;
 
-  if (!nome || !email || !senha) return;
+  if (!nome || !email) return;
 
   if (idInput !== "") {
     const index = appData.usuarios.findIndex((u) => u.id === idInput);
     if (index !== -1) {
+      // Se informou senha nova, a gente hasheia. Se não, mantem a antiga
+      let hashFinal = appData.usuarios[index].senha;
+      if (senhaStr !== "") {
+        hashFinal = await hashPassword(senhaStr);
+      }
+
       appData.usuarios[index] = {
         id: idInput,
         nome,
         cpf,
         telefone,
         email,
-        senha,
+        senha: hashFinal,
         role,
       };
       registrarHistorico("edicao", "Usuário: " + nome);
+
+      // Atualiza sessão caso esteja editando a si mesmo (sem passar a senha pra session)
       if (currentUser.id === idInput) {
-        currentUser = appData.usuarios[index];
+        const safeUser = { ...appData.usuarios[index] };
+        delete safeUser.senha;
+        currentUser = safeUser;
         sessionStorage.setItem("axo_session", JSON.stringify(currentUser));
         iniciarApp();
       }
       showToast("Usuário editado.", "success");
     }
   } else {
+    if (!senhaStr) return; // Nova conta obriga senha
     if (appData.usuarios.some((u) => u.email === email)) {
       showToast("E-mail já em uso.", "error");
       return;
     }
+
+    const hashedSenha = await hashPassword(senhaStr);
+
     appData.usuarios.unshift({
       id: "usr_" + new Date().getTime(),
       nome,
       cpf,
       telefone,
       email,
-      senha,
+      senha: hashedSenha,
       role,
     });
     registrarHistorico("criacao", "Usuário: " + nome);
@@ -816,18 +828,23 @@ function renderUsuarios() {
   if (!container) return;
   container.innerHTML = "";
   appData.usuarios.forEach((usr) => {
+    const safeNome = escapeHTML(usr.nome);
+    const safeEmail = escapeHTML(usr.email);
+    const safeCPF = escapeHTML(usr.cpf);
+    const safeTel = escapeHTML(usr.telefone);
+
     const roleClass = usr.role === "admin" ? "aguardando" : "entregue";
     const roleName = usr.role === "admin" ? "Admin" : "Funcionário";
     const card = document.createElement("div");
     card.className = "card";
     card.innerHTML = `
             <div class="card-header">
-                <div><h3 class="card-title"><i class="fa-solid fa-user-circle" style="color:var(--cor-roxo)"></i> ${usr.nome}</h3><span class="card-date">${usr.email}</span></div>
+                <div><h3 class="card-title"><i class="fa-solid fa-user-circle" style="color:var(--cor-roxo)"></i> ${safeNome}</h3><span class="card-date">${safeEmail}</span></div>
                 <span class="badge ${roleClass}">${roleName}</span>
             </div>
             <div class="card-body">
-                <div class="card-info-item"><i class="fa-solid fa-id-card"></i> <span>CPF: ${usr.cpf || "Não inf."}</span></div>
-                <div class="card-info-item"><i class="fa-solid fa-phone"></i> <span>Tel: ${usr.telefone || "Não inf."}</span></div>
+                <div class="card-info-item"><i class="fa-solid fa-id-card"></i> <span>CPF: ${safeCPF || "Não inf."}</span></div>
+                <div class="card-info-item"><i class="fa-solid fa-phone"></i> <span>Tel: ${safeTel || "Não inf."}</span></div>
             </div>
             <div class="card-actions">
                 <button class="btn-action edit" onclick="openUserFormModal('${usr.id}')"><i class="fa-solid fa-pen"></i></button>
@@ -846,7 +863,7 @@ function confirmarExclusaoUsuario(id) {
   if (!usr) return;
   const confirmBtn = document.getElementById("confirm-btn");
   document.getElementById("confirm-message").innerHTML =
-    `Excluir o acesso de <strong>${usr.nome}</strong>?`;
+    `Excluir o acesso de <strong>${escapeHTML(usr.nome)}</strong>?`;
   const newBtn = confirmBtn.cloneNode(true);
   confirmBtn.parentNode.replaceChild(newBtn, confirmBtn);
   newBtn.addEventListener("click", () => {
@@ -860,7 +877,7 @@ function confirmarExclusaoUsuario(id) {
   openModal("modal-confirm");
 }
 
-// ================= HISTÓRICO E EXCLUSÃO OBJETOS =================
+// ================= HISTÓRICO =================
 function formatarData(dataISO) {
   const p = dataISO.split("-");
   return `${p[2]}/${p[1]}/${p[0]}`;
@@ -871,7 +888,7 @@ function confirmarExclusao(id) {
   if (!obj) return;
   const confirmBtn = document.getElementById("confirm-btn");
   document.getElementById("confirm-message").innerHTML =
-    `Excluir permanentemente <strong>${obj.nome}</strong>?`;
+    `Excluir permanentemente <strong>${escapeHTML(obj.nome)}</strong>?`;
   const newBtn = confirmBtn.cloneNode(true);
   confirmBtn.parentNode.replaceChild(newBtn, confirmBtn);
   newBtn.addEventListener("click", () => {
@@ -930,11 +947,14 @@ function renderHistorico() {
   };
 
   appData.historico.forEach((item) => {
+    const safeUser = escapeHTML(item.usuario);
+    const safeObj = escapeHTML(item.objeto);
+
     const info = getIconInfo(item.tipo);
     const dataFormatada = new Date(item.timestamp).toLocaleString("pt-BR");
     const li = document.createElement("li");
     li.className = "history-item";
-    li.innerHTML = `<div class="history-icon ${info.classe}"><i class="fa-solid ${info.icone}"></i></div><div class="history-details"><div class="history-title">${item.usuario} ${info.texto} <strong>${item.objeto}</strong></div><div class="history-meta"><span><i class="fa-regular fa-clock"></i> ${dataFormatada}</span></div></div>`;
+    li.innerHTML = `<div class="history-icon ${info.classe}"><i class="fa-solid ${info.icone}"></i></div><div class="history-details"><div class="history-title">${safeUser} ${info.texto} <strong>${safeObj}</strong></div><div class="history-meta"><span><i class="fa-regular fa-clock"></i> ${dataFormatada}</span></div></div>`;
     container.appendChild(li);
   });
 }
@@ -1034,7 +1054,6 @@ function restaurarAutoBackup() {
   openModal("modal-confirm");
 }
 
-// ================= FILTROS =================
 function configurarFiltros() {
   const bind = (id, evt) => {
     const el = document.getElementById(id);
