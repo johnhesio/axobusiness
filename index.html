@@ -1,0 +1,548 @@
+<!doctype html>
+<html lang="pt-BR" data-theme="light">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AXÔ Business - Gestão de Achados e Pedidos</title>
+
+    <!-- Google Fonts: Montserrat -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+
+    <!-- Font Awesome -->
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"
+    />
+
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <!-- ================= TELA DE LOGIN ================= -->
+    <div id="login-screen" class="login-wrapper">
+      <div class="login-container">
+        <div class="login-left">
+          <div class="login-logo">
+            <i class="fa-solid fa-box-open"></i> AXÔ Business
+          </div>
+          <h2>Bem-vindo de volta!</h2>
+          <p>
+            Faça login com sua conta para acessar o sistema de gerenciamento de
+            achados e perdidos.
+          </p>
+          <div class="login-decor-circle"></div>
+          <div class="login-decor-circle small"></div>
+        </div>
+        <div class="login-right">
+          <h2>Entrar</h2>
+          <form id="login-form" onsubmit="realizarLogin(event)">
+            <div class="form-group-icon">
+              <i class="fa-regular fa-user"></i>
+              <input
+                type="email"
+                id="login-email"
+                placeholder="E-mail"
+                required
+              />
+            </div>
+            <div class="form-group-icon">
+              <i class="fa-solid fa-lock"></i>
+              <input
+                type="password"
+                id="login-senha"
+                placeholder="Senha"
+                required
+              />
+            </div>
+            <div class="login-options">
+              <label class="remember-me">
+                <input type="checkbox" /> Lembrar-me
+              </label>
+              <a
+                href="#"
+                onclick="
+                  alert(
+                    'Procure o Administrador do sistema para resetar sua senha.',
+                  )
+                "
+                >Esqueceu a senha?</a
+              >
+            </div>
+            <button type="submit" class="btn btn-primary btn-block">
+              Acessar Sistema
+            </button>
+            <div id="login-error" class="login-error hidden">
+              E-mail ou senha incorretos.
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+
+    <!-- ================= APLICAÇÃO PRINCIPAL ================= -->
+    <div class="app-container hidden" id="app-container">
+      <!-- Menu Lateral (Sidebar) -->
+      <aside class="sidebar" id="sidebar">
+        <div class="sidebar-header">
+          <div class="logo">
+            <i class="fa-solid fa-box-open"></i>
+            <span class="logo-text">AXÔ Business</span>
+          </div>
+          <button class="toggle-sidebar" id="toggle-sidebar">
+            <i class="fa-solid fa-chevron-left"></i>
+          </button>
+        </div>
+
+        <div class="sidebar-menu">
+          <button
+            class="nav-item active"
+            data-target="view-objetos"
+            data-title="Gerenciamento de Itens"
+          >
+            <i class="fa-solid fa-boxes-stacked"></i>
+            <span class="nav-text">Objetos</span>
+          </button>
+          <button
+            class="nav-item"
+            data-target="view-historico"
+            data-title="Histórico de Ações"
+          >
+            <i class="fa-solid fa-clock-rotate-left"></i>
+            <span class="nav-text">Histórico</span>
+          </button>
+
+          <!-- Itens restritos para Admin -->
+          <button
+            class="nav-item admin-only"
+            data-target="view-usuarios"
+            data-title="Gerenciamento de Usuários"
+          >
+            <i class="fa-solid fa-users"></i>
+            <span class="nav-text">Usuários</span>
+          </button>
+          <button
+            class="nav-item admin-only"
+            data-target="view-backup"
+            data-title="Backup e Restauração"
+          >
+            <i class="fa-solid fa-database"></i>
+            <span class="nav-text">Backup e Dados</span>
+          </button>
+        </div>
+
+        <div class="sidebar-footer">
+          <button class="nav-item" onclick="openFormModal()">
+            <i class="fa-solid fa-plus-circle"></i>
+            <span class="nav-text">Novo Objeto</span>
+          </button>
+        </div>
+      </aside>
+
+      <!-- Wrapper do Conteúdo Principal -->
+      <div class="main-wrapper">
+        <!-- Cabeçalho Superior -->
+        <header class="top-header">
+          <div class="header-left">
+            <button class="mobile-menu-btn" id="mobile-menu-btn">
+              <i class="fa-solid fa-bars"></i>
+            </button>
+            <h2 class="page-title" id="current-page-title">
+              Gerenciamento de Itens
+            </h2>
+          </div>
+          <div class="header-right">
+            <span class="status-badge">
+              <i
+                class="fa-solid fa-circle"
+                style="color: #28a745; font-size: 0.5rem"
+              ></i>
+              Sistema Online
+            </span>
+            <button class="theme-toggle" id="theme-btn" title="Alternar Tema">
+              <i class="fa-solid fa-moon"></i>
+            </button>
+            <div
+              class="user-profile"
+              onclick="
+                document
+                  .getElementById('user-dropdown')
+                  .classList.toggle('hidden')
+              "
+            >
+              <div class="avatar"><i class="fa-solid fa-user-tie"></i></div>
+              <span class="user-name" id="display-user-name"
+                >Carregando...</span
+              >
+              <i
+                class="fa-solid fa-chevron-down"
+                style="font-size: 0.8rem; margin-left: 5px"
+              ></i>
+
+              <!-- Dropdown Menu -->
+              <div class="dropdown-menu hidden" id="user-dropdown">
+                <div class="dropdown-header">
+                  <strong id="dropdown-name">Nome</strong>
+                  <span id="dropdown-role" class="badge">Role</span>
+                </div>
+                <button onclick="realizarLogout()">
+                  <i class="fa-solid fa-right-from-bracket"></i> Sair do Sistema
+                </button>
+              </div>
+            </div>
+          </div>
+        </header>
+
+        <!-- Conteúdo Principal -->
+        <main>
+          <!-- ================= SEÇÃO: OBJETOS ================= -->
+          <section id="view-objetos" class="view-section">
+            <div class="section-header">
+              <h1 class="section-title">Gerenciamento de Itens</h1>
+              <button class="btn btn-primary" onclick="openFormModal()">
+                <i class="fa-solid fa-plus"></i> Novo Objeto
+              </button>
+            </div>
+
+            <!-- Barra de Filtros -->
+            <div class="filters-bar">
+              <div class="search-box">
+                <i class="fa-solid fa-magnifying-glass"></i>
+                <input
+                  type="text"
+                  id="filter-search"
+                  placeholder="Buscar por nome ou descrição..."
+                />
+              </div>
+
+              <div class="filter-group">
+                <select id="filter-status">
+                  <option value="todos">Todos os Status</option>
+                  <option value="Aguardando">Aguardando</option>
+                  <option value="Entregue">Entregue</option>
+                  <option value="Cancelado">Cancelado</option>
+                </select>
+              </div>
+
+              <div class="filter-group">
+                <select id="filter-periodo">
+                  <option value="todos">Todo o Período</option>
+                  <option value="7">Últimos 7 dias</option>
+                  <option value="30">Últimos 30 dias</option>
+                  <option value="custom">Personalizado</option>
+                </select>
+              </div>
+
+              <div class="custom-date-group hidden" id="custom-date-container">
+                <input
+                  type="date"
+                  id="filter-date-start"
+                  title="Data Inicial"
+                />
+                <span>até</span>
+                <input type="date" id="filter-date-end" title="Data Final" />
+              </div>
+            </div>
+
+            <!-- Grid de Cards -->
+            <div class="cards-grid" id="objetos-container"></div>
+          </section>
+
+          <!-- ================= SEÇÃO: HISTÓRICO ================= -->
+          <section id="view-historico" class="view-section hidden">
+            <div class="section-header">
+              <h1 class="section-title">Histórico de Ações</h1>
+              <button
+                class="btn btn-danger admin-only"
+                onclick="confirmarLimparHistorico()"
+              >
+                <i class="fa-solid fa-trash-can"></i> Limpar Histórico
+              </button>
+            </div>
+
+            <ul class="history-list" id="historico-container"></ul>
+          </section>
+
+          <!-- ================= SEÇÃO: USUÁRIOS (ADMIN ONLY) ================= -->
+          <section id="view-usuarios" class="view-section hidden">
+            <div class="section-header">
+              <h1 class="section-title">Gerenciamento de Usuários</h1>
+              <button class="btn btn-primary" onclick="openUserFormModal()">
+                <i class="fa-solid fa-user-plus"></i> Novo Usuário
+              </button>
+            </div>
+
+            <div class="cards-grid" id="usuarios-container">
+              <!-- Cards de usuários injetados via JS -->
+            </div>
+          </section>
+
+          <!-- ================= SEÇÃO: BACKUP ================= -->
+          <section id="view-backup" class="view-section hidden">
+            <div class="section-header">
+              <h1 class="section-title">Backup e Restauração</h1>
+            </div>
+
+            <div class="backup-grid">
+              <div class="backup-card">
+                <i class="fa-solid fa-file-export"></i>
+                <h3>Exportar Dados</h3>
+                <p>
+                  Baixe todos os seus registros e histórico em um arquivo JSON
+                  de segurança.
+                </p>
+                <button class="btn btn-primary" onclick="exportData()">
+                  <i class="fa-solid fa-download"></i> Baixar Backup
+                </button>
+              </div>
+
+              <div class="backup-card">
+                <i class="fa-solid fa-file-import"></i>
+                <h3>Importar Dados</h3>
+                <p>
+                  Carregue um arquivo JSON de backup.
+                  <strong>Atenção:</strong> Isso substituirá os dados atuais.
+                </p>
+                <input
+                  type="file"
+                  id="import-file"
+                  accept=".json"
+                  class="hidden"
+                  onchange="processarImportacao(event)"
+                />
+                <button
+                  class="btn btn-outline"
+                  onclick="document.getElementById('import-file').click()"
+                >
+                  <i class="fa-solid fa-upload"></i> Selecionar Arquivo
+                </button>
+              </div>
+
+              <div class="backup-card">
+                <i class="fa-solid fa-clock-rotate-left"></i>
+                <h3>Restaurar Auto-Backup</h3>
+                <p>
+                  Restaure o sistema para o último ponto de recuperação salvo
+                  automaticamente.
+                </p>
+                <button class="btn btn-outline" onclick="restaurarAutoBackup()">
+                  <i class="fa-solid fa-rotate-left"></i> Restaurar
+                </button>
+              </div>
+            </div>
+
+            <div class="backup-status">
+              <i
+                class="fa-solid fa-circle-info"
+                style="color: var(--cor-azul-medio); font-size: 1.5rem"
+              ></i>
+              <div>
+                <strong>Backup Automático Ativo</strong>
+                <p
+                  style="
+                    margin: 0;
+                    font-size: 0.9rem;
+                    color: var(--text-secondary);
+                  "
+                  id="last-backup-text"
+                >
+                  Último salvamento: Nunca
+                </p>
+              </div>
+            </div>
+          </section>
+        </main>
+      </div>
+    </div>
+
+    <!-- ================= MODAIS ================= -->
+
+    <!-- Modal Formulário Objeto -->
+    <div class="modal-overlay" id="modal-form">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h2 class="modal-title" id="modal-form-title">Novo Objeto</h2>
+          <button class="close-modal" onclick="closeModal('modal-form')">
+            <i class="fa-solid fa-xmark"></i>
+          </button>
+        </div>
+        <form id="objeto-form" onsubmit="salvarObjeto(event)">
+          <input type="hidden" id="obj-id" />
+          <div class="form-group">
+            <label for="obj-nome">Nome do Objeto *</label>
+            <input
+              type="text"
+              id="obj-nome"
+              required
+              placeholder="Ex: Chave de carro, Carteira..."
+            />
+          </div>
+          <div class="form-group">
+            <label for="obj-local">Local (Encontrado/Perdido) *</label>
+            <input
+              type="text"
+              id="obj-local"
+              required
+              placeholder="Ex: Recepção, Estacionamento..."
+            />
+          </div>
+          <div class="form-group">
+            <label for="obj-data">Data *</label>
+            <input type="date" id="obj-data" required />
+          </div>
+          <div class="form-group">
+            <label for="obj-status">Status *</label>
+            <select id="obj-status" required>
+              <option value="Aguardando">Aguardando</option>
+              <option value="Entregue">Entregue</option>
+              <option value="Cancelado">Cancelado</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="obj-desc">Descrição / Detalhes</label>
+            <textarea
+              id="obj-desc"
+              rows="3"
+              placeholder="Cor, marca, características..."
+            ></textarea>
+          </div>
+          <div class="modal-footer">
+            <button
+              type="button"
+              class="btn btn-outline"
+              onclick="closeModal('modal-form')"
+            >
+              Cancelar
+            </button>
+            <button type="submit" class="btn btn-primary">
+              <i class="fa-solid fa-check"></i> Salvar
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- Modal Formulário Usuário -->
+    <div class="modal-overlay" id="modal-user-form">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h2 class="modal-title" id="modal-user-title">Novo Usuário</h2>
+          <button class="close-modal" onclick="closeModal('modal-user-form')">
+            <i class="fa-solid fa-xmark"></i>
+          </button>
+        </div>
+        <form id="usuario-form" onsubmit="salvarUsuario(event)">
+          <input type="hidden" id="usr-id" />
+
+          <div class="form-group">
+            <label for="usr-nome">Nome Completo *</label>
+            <input
+              type="text"
+              id="usr-nome"
+              required
+              placeholder="Nome do colaborador"
+            />
+          </div>
+
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem">
+            <div class="form-group">
+              <label for="usr-cpf">CPF *</label>
+              <input
+                type="text"
+                id="usr-cpf"
+                required
+                placeholder="000.000.000-00"
+              />
+            </div>
+            <div class="form-group">
+              <label for="usr-telefone">Telefone *</label>
+              <input
+                type="text"
+                id="usr-telefone"
+                required
+                placeholder="(00) 00000-0000"
+              />
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label for="usr-email">E-mail (Login) *</label>
+            <input
+              type="email"
+              id="usr-email"
+              required
+              placeholder="email@empresa.com"
+            />
+          </div>
+
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem">
+            <div class="form-group">
+              <label for="usr-senha">Senha *</label>
+              <input
+                type="password"
+                id="usr-senha"
+                required
+                placeholder="Senha de acesso"
+              />
+            </div>
+            <div class="form-group">
+              <label for="usr-role">Nível de Acesso *</label>
+              <select id="usr-role" required>
+                <option value="funcionario">Funcionário</option>
+                <option value="admin">Administrador</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="modal-footer">
+            <button
+              type="button"
+              class="btn btn-outline"
+              onclick="closeModal('modal-user-form')"
+            >
+              Cancelar
+            </button>
+            <button type="submit" class="btn btn-primary">
+              <i class="fa-solid fa-check"></i> Salvar Usuário
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- Modal Confirmação -->
+    <div class="modal-overlay" id="modal-confirm">
+      <div class="modal-content" style="max-width: 400px; text-align: center">
+        <div style="font-size: 3rem; color: #dc3545; margin-bottom: 1rem">
+          <i class="fa-solid fa-circle-exclamation"></i>
+        </div>
+        <h2
+          class="modal-title"
+          style="margin-bottom: 1rem; color: var(--text-main)"
+        >
+          Confirmação
+        </h2>
+        <p
+          id="confirm-message"
+          style="margin-bottom: 2rem; color: var(--text-secondary)"
+        >
+          Tem certeza que deseja realizar esta ação?
+        </p>
+        <div class="modal-footer" style="justify-content: center">
+          <button class="btn btn-outline" onclick="closeModal('modal-confirm')">
+            Cancelar
+          </button>
+          <button class="btn btn-danger" id="confirm-btn">
+            Sim, Confirmar
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ================= JAVASCRIPT ================= -->
+    <script src="script.js"></script>
+  </body>
+</html>
