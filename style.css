@@ -5,7 +5,6 @@
   --cor-azul-escuro: #2b298e;
   --cor-azul-medio: #6284c4;
   --cor-laranja: #e07815;
-
   --bg-body: #f4f5f7;
   --bg-card: #ffffff;
   --bg-header: var(--cor-azul-escuro);
@@ -76,7 +75,29 @@ textarea:focus {
   display: none !important;
 }
 
-/* ================= Tela de Login ================= */
+/* MAPA E CANVAS */
+#map-container {
+  height: 200px;
+  width: 100%;
+  border-radius: 8px;
+  border: 1px solid var(--input-border);
+  z-index: 1;
+}
+.signature-wrapper {
+  border: 2px dashed var(--border-color);
+  border-radius: 8px;
+  background: white;
+  margin-bottom: 1rem;
+  overflow: hidden;
+}
+#signature-pad {
+  width: 100%;
+  height: 200px;
+  touch-action: none;
+  cursor: crosshair;
+}
+
+/* LOGIN E TOASTS */
 .login-wrapper {
   height: 100vh;
   width: 100vw;
@@ -203,7 +224,6 @@ textarea:focus {
   justify-content: center;
 }
 
-/* ================= Toast Notifications ================= */
 .toast-container {
   position: fixed;
   bottom: 20px;
@@ -254,7 +274,7 @@ textarea:focus {
   font-size: 1.2rem;
 }
 
-/* ================= Painel Lateral ================= */
+/* MENU E GERAL */
 .app-container {
   display: flex;
   height: 100vh;
@@ -373,7 +393,7 @@ textarea:focus {
   background-color: var(--bg-body);
 }
 
-/* ================= Header Superior ================= */
+/* HEADER E USER */
 .top-header {
   background-color: var(--bg-card);
   padding: 0 2rem;
@@ -492,7 +512,7 @@ textarea:focus {
   color: #dc3545;
 }
 
-/* ================= Dashboard & Main Content ================= */
+/* CONTEUDO E DASHBOARD */
 main {
   flex: 1;
   padding: 2rem;
@@ -560,7 +580,7 @@ main {
   width: 100%;
 }
 
-/* ================= Buttons & Filters ================= */
+/* BOTOES E FILTROS */
 .btn {
   padding: 0.75rem 1.5rem;
   border-radius: 8px;
@@ -627,7 +647,7 @@ main {
   align-items: center;
 }
 
-/* ================= Grid Cards & Upload Foto ================= */
+/* CARDS */
 .cards-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
@@ -663,7 +683,6 @@ main {
   height: 100%;
   object-fit: cover;
 }
-
 .card-header {
   display: flex;
   justify-content: space-between;
@@ -754,7 +773,6 @@ main {
   background: #dc3545;
   border-color: #dc3545;
 }
-
 .empty-state {
   grid-column: 1 / -1;
   text-align: center;
@@ -769,7 +787,6 @@ main {
   margin-bottom: 1rem;
 }
 
-/* Photo Upload no Modal */
 .photo-upload-container {
   margin-bottom: 1rem;
   text-align: center;
@@ -821,7 +838,7 @@ main {
   box-shadow: 0 2px 5px rgba(0, 0, 0, 0.3);
 }
 
-/* ================= Historico & Backup ================= */
+/* HISTORICO, BACKUP E MODAIS */
 .history-list {
   list-style: none;
   background: var(--bg-card);
@@ -916,7 +933,6 @@ main {
   gap: 1rem;
 }
 
-/* ================= Modals ================= */
 .modal-overlay {
   position: fixed;
   top: 0;

@@ -1,8 +1,7 @@
 /**
- * AXÔ Business - Aplicação Core Completa
+ * AXÔ Business - Completo c/ Mapas, QR Code, Assinatura e WhatsApp
  */
 
-// ================= ESTADO DA APLICAÇÃO =================
 let appData = {
   objetos: [],
   historico: [],
@@ -10,12 +9,16 @@ let appData = {
   ultimoBackup: null,
   theme: "light",
 };
-
 let currentUser = null;
-let currentImageB64 = null; // Armazena a foto atual em memória
-let dashChart = null; // Instância do gráfico
+let currentImageB64 = null;
+let dashChart = null;
+let leafletMap = null;
+let marker = null;
+let signaturePad = null;
+let ctxSignature = null;
+let isDrawing = false;
+let qrCodeScanner = null;
 
-// ================= INICIALIZAÇÃO =================
 document.addEventListener("DOMContentLoaded", () => {
   carregarDados();
   garantirAdminPadrao();
@@ -24,50 +27,47 @@ document.addEventListener("DOMContentLoaded", () => {
   configurarNavegacao();
   configurarFiltros();
 
-  const hoje = new Date().toISOString().split("T")[0];
-  document.getElementById("obj-data").max = hoje;
-
+  document.getElementById("obj-data").max = new Date()
+    .toISOString()
+    .split("T")[0];
   document.addEventListener("click", (e) => {
     if (!e.target.closest(".user-profile")) {
-      document.getElementById("user-dropdown").classList.add("hidden");
+      const drop = document.getElementById("user-dropdown");
+      if (drop) drop.classList.add("hidden");
     }
   });
+
+  setupSignaturePad();
 });
 
-// ================= TOAST NOTIFICATIONS =================
+// ================= UTILITÁRIOS E TOASTS =================
 function showToast(message, type = "success") {
   const container = document.getElementById("toast-container");
   const toast = document.createElement("div");
   toast.className = `toast toast-${type}`;
-
   const icon =
     type === "success"
       ? "fa-check-circle"
       : type === "error"
         ? "fa-circle-xmark"
         : "fa-info-circle";
-
   toast.innerHTML = `<i class="fa-solid ${icon}"></i> <span>${message}</span>`;
   container.appendChild(toast);
-
-  // Fade In
   setTimeout(() => toast.classList.add("show"), 10);
-
-  // Remove apos 3s
   setTimeout(() => {
     toast.classList.remove("show");
-    setTimeout(() => toast.remove(), 300); // Aguarda animação CSS
+    setTimeout(() => toast.remove(), 300);
   }, 3000);
 }
 
-// ================= AUTENTICAÇÃO =================
+// ================= AUTENTICAÇÃO E PERMISSÕES =================
 function garantirAdminPadrao() {
   if (appData.usuarios.length === 0) {
     appData.usuarios.push({
       id: "usr_" + Date.now(),
-      nome: "Administrador do Sistema",
-      cpf: "000.000.000-00",
-      telefone: "(00) 00000-0000",
+      nome: "Administrador",
+      cpf: "",
+      telefone: "",
       email: "admin@axo.com",
       senha: "admin",
       role: "admin",
@@ -88,17 +88,16 @@ function verificarSessao() {
 
 function realizarLogin(e) {
   e.preventDefault();
-  const email = document.getElementById("login-email").value;
-  const senha = document.getElementById("login-senha").value;
-
-  const usuario = appData.usuarios.find(
-    (u) => u.email === email && u.senha === senha,
+  const emailStr = document.getElementById("login-email").value;
+  const senhaStr = document.getElementById("login-senha").value;
+  const u = appData.usuarios.find(
+    (u) => u.email === emailStr && u.senha === senhaStr,
   );
 
-  if (usuario) {
-    currentUser = usuario;
+  if (u) {
+    currentUser = u;
     sessionStorage.setItem("axo_session", JSON.stringify(currentUser));
-    showToast(`Bem-vindo, ${usuario.nome}!`, "success");
+    showToast(`Bem-vindo, ${u.nome}!`, "success");
     iniciarApp();
   } else {
     showToast("E-mail ou senha incorretos.", "error");
@@ -109,7 +108,7 @@ function realizarLogout() {
   currentUser = null;
   sessionStorage.removeItem("axo_session");
   document.getElementById("login-form").reset();
-  showToast("Sessão encerrada com sucesso.", "info");
+  showToast("Sessão encerrada.", "info");
   mostrarLogin();
 }
 
@@ -125,46 +124,38 @@ function iniciarApp() {
   document.getElementById("display-user-name").innerText =
     currentUser.nome.split(" ")[0];
   document.getElementById("dropdown-name").innerText = currentUser.nome;
-
-  const roleBadge = document.getElementById("dropdown-role");
-  roleBadge.innerText =
+  document.getElementById("dropdown-role").innerText =
     currentUser.role === "admin" ? "Administrador" : "Funcionário";
-  roleBadge.className =
-    "badge " + (currentUser.role === "admin" ? "aguardando" : "entregue");
 
-  aplicarPermissoes();
+  document.querySelectorAll(".admin-only").forEach((el) => {
+    el.style.display = currentUser.role === "admin" ? "" : "none";
+  });
 
-  // Render inicial
   renderDashboard();
   renderObjetos();
   renderHistorico();
-  if (currentUser.role === "admin") renderUsuarios();
-  atualizarTextoUltimoBackup();
 
+  if (currentUser.role === "admin") {
+    renderUsuarios();
+  }
+
+  atualizarTextoUltimoBackup();
   document.querySelector('.nav-item[data-target="view-dashboard"]').click();
 }
 
-function aplicarPermissoes() {
-  const adminElements = document.querySelectorAll(".admin-only");
-  adminElements.forEach(
-    (el) => (el.style.display = currentUser.role === "admin" ? "" : "none"),
-  );
-}
-
-// ================= PERSISTÊNCIA =================
+// ================= DADOS E PERSISTÊNCIA =================
 function carregarDados() {
-  const saved = localStorage.getItem("axo_data");
-  if (saved) {
+  const s = localStorage.getItem("axo_data");
+  if (s) {
     try {
-      appData = JSON.parse(saved);
-      if (!appData.objetos) appData.objetos = [];
-      if (!appData.historico) appData.historico = [];
-      if (!appData.usuarios) appData.usuarios = [];
-      if (!appData.theme) appData.theme = "light";
+      appData = JSON.parse(s);
     } catch (e) {
-      console.error("Erro ao carregar dados", e);
+      console.error("Falha ao carregar");
     }
   }
+  if (!appData.objetos) appData.objetos = [];
+  if (!appData.historico) appData.historico = [];
+  if (!appData.usuarios) appData.usuarios = [];
 }
 
 function salvarDados() {
@@ -186,247 +177,41 @@ function salvarAutoBackup() {
 function atualizarTextoUltimoBackup() {
   const el = document.getElementById("last-backup-text");
   if (appData.ultimoBackup && el) {
-    const data = new Date(appData.ultimoBackup);
-    el.innerText = `Último salvamento: ${data.toLocaleString("pt-BR")}`;
+    el.innerText = `Último salvamento: ${new Date(appData.ultimoBackup).toLocaleString("pt-BR")}`;
   }
 }
 
-// ================= COMPRESSÃO E UPLOAD DE FOTOS (ZERO-UPLOAD) =================
-function processarImagem(event) {
-  const file = event.target.files[0];
-  if (!file) return;
-
-  const reader = new FileReader();
-  reader.onload = (e) => {
-    const img = new Image();
-    img.onload = () => {
-      // Comprimir in-memory com Canvas
-      const canvas = document.createElement("canvas");
-      const MAX_WIDTH = 400; // Tamanho ideal para thumbnails sem gastar DB
-      const scaleSize = MAX_WIDTH / img.width;
-
-      canvas.width = MAX_WIDTH;
-      canvas.height = img.height * scaleSize;
-
-      const ctx = canvas.getContext("2d");
-      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-
-      currentImageB64 = canvas.toDataURL("image/jpeg", 0.7); // Compressão Jpeg 70%
-
-      // Exibir preview
-      document.getElementById("preview-img").src = currentImageB64;
-      document.getElementById("photo-preview").classList.remove("hidden");
-    };
-    img.src = e.target.result;
-  };
-  reader.readAsDataURL(file);
-}
-
-function removerFoto() {
-  currentImageB64 = null;
-  document.getElementById("obj-foto").value = "";
-  document.getElementById("photo-preview").classList.add("hidden");
-}
-
-// ================= GERAÇÃO DE PDF =================
-function gerarTermoPDF(id) {
-  const obj = appData.objetos.find((o) => o.id === id);
-  if (!obj) return;
-
-  try {
-    const { jsPDF } = window.jspdf;
-    const doc = new jsPDF();
-
-    // Cores Oficiais
-    doc.setFillColor(100, 54, 152); // Roxo AXÔ
-    doc.rect(0, 0, 210, 40, "F");
-
-    doc.setTextColor(255, 255, 255);
-    doc.setFontSize(22);
-    doc.text("AXÔ Business", 105, 20, null, null, "center");
-    doc.setFontSize(14);
-    doc.text("Termo Probatório de Entrega", 105, 30, null, null, "center");
-
-    // Corpo
-    doc.setTextColor(50, 50, 50);
-    doc.setFontSize(12);
-
-    let y = 60;
-    doc.text(
-      `O presente termo documenta a entrega formal do objeto abaixo descrito,`,
-      20,
-      y,
-    );
-    y += 10;
-    doc.text(`previamente cadastrado no sistema AXÔ Business.`, 20, y);
-
-    y += 20;
-    doc.setFont("helvetica", "bold");
-    doc.text("Detalhes do Objeto:", 20, y);
-    doc.setFont("helvetica", "normal");
-
-    y += 10;
-    doc.text(`ID do Registro: ${obj.id}`, 20, y);
-    y += 10;
-    doc.text(`Objeto: ${obj.nome}`, 20, y);
-    y += 10;
-    doc.text(`Local de Origem: ${obj.local}`, 20, y);
-    y += 10;
-    doc.text(`Data do Registro: ${formatarData(obj.data)}`, 20, y);
-    y += 10;
-
-    // Tratar texto longo na descrição
-    const descLines = doc.splitTextToSize(
-      `Descrição: ${obj.desc || "Nenhuma"}`,
-      170,
-    );
-    doc.text(descLines, 20, y);
-
-    y += descLines.length * 10 + 20;
-
-    doc.text(
-      "Declaro para os devidos fins ter recebido o objeto acima descrito",
-      20,
-      y,
-    );
-    y += 10;
-    doc.text("nas condições especificadas.", 20, y);
-
-    // Assinaturas
-    y += 40;
-    doc.line(30, y, 90, y); // Linha Entregador
-    doc.line(120, y, 180, y); // Linha Recebedor
-
-    y += 5;
-    doc.setFontSize(10);
-    doc.text(`Entregue por: ${currentUser.nome}`, 60, y, null, null, "center");
-    doc.text("Assinatura de quem retirou", 150, y, null, null, "center");
-
-    // Footer com data gerada
-    doc.setFontSize(8);
-    doc.setTextColor(150, 150, 150);
-    doc.text(
-      `Documento gerado eletronicamente em: ${new Date().toLocaleString("pt-BR")}`,
-      105,
-      280,
-      null,
-      null,
-      "center",
-    );
-
-    doc.save(`Termo_AXO_${obj.nome.replace(/\s+/g, "_")}.pdf`);
-    showToast("Termo PDF gerado com sucesso!", "success");
-    registrarHistorico("backup", `Gerou PDF do Objeto: ${obj.nome}`);
-  } catch (err) {
-    showToast("Erro ao gerar PDF. Verifique sua conexão.", "error");
-    console.error(err);
-  }
-}
-
-// ================= DASHBOARD ANALÍTICO =================
-function renderDashboard() {
-  const total = appData.objetos.length;
-  const aguardando = appData.objetos.filter(
-    (o) => o.status === "Aguardando",
-  ).length;
-  const entregues = appData.objetos.filter(
-    (o) => o.status === "Entregue",
-  ).length;
-
-  document.getElementById("stat-total").innerText = total;
-  document.getElementById("stat-aguardando").innerText = aguardando;
-  document.getElementById("stat-entregues").innerText = entregues;
-
-  // Agrupar itens por data para o Gráfico
-  const datasMap = {};
-  // Pegar ultimos 7 dias
-  for (let i = 6; i >= 0; i--) {
-    const d = new Date();
-    d.setDate(d.getDate() - i);
-    datasMap[d.toISOString().split("T")[0]] = 0;
-  }
-
-  appData.objetos.forEach((obj) => {
-    if (datasMap[obj.data] !== undefined) {
-      datasMap[obj.data]++;
-    }
-  });
-
-  const labels = Object.keys(datasMap).map(formatarData);
-  const dataVals = Object.values(datasMap);
-
-  const ctx = document.getElementById("objetosChart").getContext("2d");
-
-  // Destruir grafico anterior se existir para evitar bug de hover
-  if (dashChart) dashChart.destroy();
-
-  const isDark = appData.theme === "dark";
-
-  dashChart = new Chart(ctx, {
-    type: "line",
-    data: {
-      labels: labels,
-      datasets: [
-        {
-          label: "Objetos Cadastrados",
-          data: dataVals,
-          borderColor: "#643698",
-          backgroundColor: "rgba(100, 54, 152, 0.2)",
-          tension: 0.4,
-          fill: true,
-          borderWidth: 3,
-          pointBackgroundColor: "#E07815",
-        },
-      ],
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: {
-        legend: { labels: { color: isDark ? "#e0e0e0" : "#333" } },
-      },
-      scales: {
-        y: {
-          beginAtZero: true,
-          ticks: { stepSize: 1, color: isDark ? "#b0b0b0" : "#666" },
-          grid: { color: isDark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.1)" },
-        },
-        x: {
-          ticks: { color: isDark ? "#b0b0b0" : "#666" },
-          grid: { color: isDark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.1)" },
-        },
-      },
-    },
-  });
-}
-
-// ================= RESTANTE DO CÓDIGO (Navegação, CRUD) =================
-
+// ================= NAVEGAÇÃO E TEMAS =================
 function configurarNavegacao() {
-  const tabs = document.querySelectorAll(".nav-item[data-target]");
-  const pageTitle = document.getElementById("current-page-title");
-
-  tabs.forEach((tab) => {
-    tab.addEventListener("click", (e) => {
-      const btn = e.currentTarget;
-      tabs.forEach((t) => t.classList.remove("active"));
+  document.querySelectorAll(".nav-item[data-target]").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      // Remove active classes
+      document
+        .querySelectorAll(".nav-item")
+        .forEach((t) => t.classList.remove("active"));
       document
         .querySelectorAll(".view-section")
         .forEach((sec) => sec.classList.add("hidden"));
 
-      const targetId = btn.getAttribute("data-target");
+      // Add active class to clicked
       btn.classList.add("active");
+      const targetId = btn.getAttribute("data-target");
       document.getElementById(targetId).classList.remove("hidden");
 
-      if (pageTitle && btn.getAttribute("data-title"))
-        pageTitle.innerText = btn.getAttribute("data-title");
+      // Update Page Title
+      const pt = document.getElementById("current-page-title");
+      if (pt) pt.innerText = btn.getAttribute("data-title");
 
-      if (targetId === "view-historico") renderHistorico();
-      if (targetId === "view-usuarios") renderUsuarios();
+      // Trigger specific renders
       if (targetId === "view-dashboard") renderDashboard();
+      if (targetId === "view-historico") renderHistorico();
+      if (targetId === "view-usuarios" && currentUser.role === "admin")
+        renderUsuarios();
 
-      if (window.innerWidth <= 768)
+      // Close mobile menu
+      if (window.innerWidth <= 768) {
         document.getElementById("sidebar").classList.remove("mobile-open");
+      }
     });
   });
 
@@ -434,14 +219,14 @@ function configurarNavegacao() {
     appData.theme = appData.theme === "light" ? "dark" : "light";
     aplicarTemaAtual();
     salvarDadosSilencioso();
-    renderDashboard(); // Atualiza cores do gráfico
+    renderDashboard();
   });
 
   document.getElementById("toggle-sidebar").addEventListener("click", () => {
     document.getElementById("sidebar").classList.toggle("collapsed");
     setTimeout(() => {
       if (dashChart) dashChart.resize();
-    }, 300); // Resize chart delay
+    }, 300);
   });
 
   document.getElementById("mobile-menu-btn").addEventListener("click", () => {
@@ -464,18 +249,322 @@ function closeModal(id) {
   document.getElementById(id).classList.remove("active");
   if (id === "modal-form") {
     document.getElementById("objeto-form").reset();
-    document.getElementById("obj-id").value = "";
     removerFoto();
   }
   if (id === "modal-user-form") {
     document.getElementById("usuario-form").reset();
-    document.getElementById("usr-id").value = "";
   }
+}
+
+// ================= MAPAS (LEAFLET) =================
+function initMap() {
+  if (!leafletMap) {
+    leafletMap = L.map("map-container").setView([-3.7319, -38.5267], 13);
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      attribution: "&copy; OpenStreetMap",
+    }).addTo(leafletMap);
+    marker = L.marker([-3.7319, -38.5267], { draggable: true }).addTo(
+      leafletMap,
+    );
+
+    leafletMap.on("click", function (e) {
+      updateMarker(e.latlng.lat, e.latlng.lng);
+    });
+    marker.on("dragend", function (e) {
+      const pos = marker.getLatLng();
+      updateMarker(pos.lat, pos.lng);
+    });
+  }
+  setTimeout(() => leafletMap.invalidateSize(), 300);
+}
+
+function updateMarker(lat, lng) {
+  if (marker) {
+    marker.setLatLng([lat, lng]);
+    leafletMap.panTo([lat, lng]);
+  }
+  document.getElementById("obj-lat").value = lat;
+  document.getElementById("obj-lng").value = lng;
+}
+
+// ================= FOTOS E QR CODE =================
+function processarImagem(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement("canvas");
+      const MAX_WIDTH = 400;
+      const scaleSize = MAX_WIDTH / img.width;
+      canvas.width = MAX_WIDTH;
+      canvas.height = img.height * scaleSize;
+      canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
+      currentImageB64 = canvas.toDataURL("image/jpeg", 0.7);
+      document.getElementById("preview-img").src = currentImageB64;
+      document.getElementById("photo-preview").classList.remove("hidden");
+    };
+    img.src = e.target.result;
+  };
+  reader.readAsDataURL(file);
+}
+
+function removerFoto() {
+  currentImageB64 = null;
+  document.getElementById("obj-foto").value = "";
+  document.getElementById("photo-preview").classList.add("hidden");
+}
+
+function gerarEtiquetaQR(id, nome) {
+  const container = document.getElementById("qrcode-display");
+  container.innerHTML = "";
+  new QRCode(container, {
+    text: id,
+    width: 200,
+    height: 200,
+    colorDark: "#643698",
+    colorLight: "#ffffff",
+  });
+  document.getElementById("qrcode-obj-name").innerText = nome;
+  openModal("modal-qrcode");
+}
+
+// ================= LEITOR DE QR CODE =================
+function abrirLeitorQR() {
+  openModal("modal-leitor");
+  qrCodeScanner = new Html5QrcodeScanner(
+    "qr-reader",
+    { fps: 10, qrbox: { width: 250, height: 250 } },
+    false,
+  );
+  qrCodeScanner.render(onScanSuccess, onScanFailure);
+}
+
+function fecharLeitorQR() {
+  if (qrCodeScanner) {
+    qrCodeScanner.clear();
+  }
+  closeModal("modal-leitor");
+}
+
+function onScanSuccess(decodedText) {
+  fecharLeitorQR();
+  showToast("QR Code Lido!", "success");
+  document.querySelector('.nav-item[data-target="view-objetos"]').click();
+  document.getElementById("filter-search").value = decodedText;
+  renderObjetos();
+}
+
+function onScanFailure(error) {
+  /* Ignore */
+}
+
+// ================= ASSINATURA E PDF =================
+function setupSignaturePad() {
+  signaturePad = document.getElementById("signature-pad");
+  ctxSignature = signaturePad.getContext("2d");
+
+  const startDraw = (e) => {
+    isDrawing = true;
+    draw(e);
+  };
+  const stopDraw = () => {
+    isDrawing = false;
+    ctxSignature.beginPath();
+  };
+  const draw = (e) => {
+    if (!isDrawing) return;
+    e.preventDefault();
+    const rect = signaturePad.getBoundingClientRect();
+    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+
+    ctxSignature.lineWidth = 3;
+    ctxSignature.lineCap = "round";
+    ctxSignature.strokeStyle = "#000";
+    ctxSignature.lineTo(clientX - rect.left, clientY - rect.top);
+    ctxSignature.stroke();
+    ctxSignature.beginPath();
+    ctxSignature.moveTo(clientX - rect.left, clientY - rect.top);
+  };
+
+  signaturePad.addEventListener("mousedown", startDraw);
+  signaturePad.addEventListener("mousemove", draw);
+  signaturePad.addEventListener("mouseup", stopDraw);
+  signaturePad.addEventListener("mouseout", stopDraw);
+  signaturePad.addEventListener("touchstart", startDraw, { passive: false });
+  signaturePad.addEventListener("touchmove", draw, { passive: false });
+  signaturePad.addEventListener("touchend", stopDraw);
+}
+
+function limparAssinatura() {
+  ctxSignature.clearRect(0, 0, signaturePad.width, signaturePad.height);
+}
+
+function abrirAssinatura(id) {
+  document.getElementById("signature-obj-id").value = id;
+  limparAssinatura();
+  openModal("modal-assinatura");
+}
+
+function confirmarAssinaturaEPDF() {
+  const id = document.getElementById("signature-obj-id").value;
+  const signatureBase64 = signaturePad.toDataURL("image/png");
+
+  const blank = document.createElement("canvas");
+  blank.width = signaturePad.width;
+  blank.height = signaturePad.height;
+  if (signatureBase64 === blank.toDataURL()) {
+    showToast("Por favor, assine o quadro.", "error");
+    return;
+  }
+
+  closeModal("modal-assinatura");
+  gerarTermoPDF(id, signatureBase64);
+}
+
+function gerarTermoPDF(id, signatureB64) {
+  const obj = appData.objetos.find((o) => o.id === id);
+  if (!obj) return;
+  try {
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF();
+
+    doc.setFillColor(100, 54, 152);
+    doc.rect(0, 0, 210, 40, "F");
+    doc.setTextColor(255, 255, 255);
+    doc.setFontSize(22);
+    doc.text("AXÔ Business", 105, 20, null, null, "center");
+    doc.setFontSize(14);
+    doc.text("Termo Probatório de Entrega", 105, 30, null, null, "center");
+
+    doc.setTextColor(50, 50, 50);
+    doc.setFontSize(12);
+    let y = 60;
+    doc.text(
+      `O presente termo documenta a entrega formal do objeto abaixo descrito,`,
+      20,
+      y,
+    );
+    y += 10;
+    doc.text(`previamente cadastrado no sistema AXÔ Business.`, 20, y);
+
+    y += 20;
+    doc.setFont("helvetica", "bold");
+    doc.text("Detalhes do Objeto:", 20, y);
+    doc.setFont("helvetica", "normal");
+    y += 10;
+    doc.text(`ID do Registro: ${obj.id}`, 20, y);
+    y += 10;
+    doc.text(`Objeto: ${obj.nome}`, 20, y);
+    y += 10;
+    doc.text(`Local de Origem: ${obj.local}`, 20, y);
+    y += 10;
+    doc.text(`Data do Registro: ${formatarData(obj.data)}`, 20, y);
+
+    if (obj.dono) {
+      y += 10;
+      doc.text(`Reivindicado por: ${obj.dono}`, 20, y);
+    }
+
+    y += 10;
+    const descLines = doc.splitTextToSize(
+      `Descrição: ${obj.desc || "Nenhuma"}`,
+      170,
+    );
+    doc.text(descLines, 20, y);
+    y += descLines.length * 10 + 15;
+
+    doc.text(
+      "Declaro para os devidos fins ter recebido o objeto acima descrito.",
+      20,
+      y,
+    );
+
+    y += 20;
+    doc.addImage(signatureB64, "PNG", 120, y, 60, 30);
+    y += 30;
+    doc.line(30, y, 90, y);
+    doc.line(120, y, 180, y);
+    y += 5;
+    doc.setFontSize(10);
+    doc.text(`Entregue por: ${currentUser.nome}`, 60, y, null, null, "center");
+    doc.text("Assinatura do Recebedor", 150, y, null, null, "center");
+
+    doc.setFontSize(8);
+    doc.setTextColor(150, 150, 150);
+    doc.text(
+      `Gerado eletronicamente: ${new Date().toLocaleString("pt-BR")}`,
+      105,
+      280,
+      null,
+      null,
+      "center",
+    );
+    doc.save(`Termo_AXO_${obj.nome.replace(/\s+/g, "_")}.pdf`);
+    showToast("PDF e Assinatura salvos com sucesso!", "success");
+    registrarHistorico("backup", `Gerou PDF Assinado do Objeto: ${obj.nome}`);
+  } catch (err) {
+    showToast("Erro ao gerar PDF.", "error");
+  }
+}
+
+// ================= DASHBOARD & OBJETOS =================
+function renderDashboard() {
+  document.getElementById("stat-total").innerText = appData.objetos.length;
+  document.getElementById("stat-aguardando").innerText = appData.objetos.filter(
+    (o) => o.status === "Aguardando",
+  ).length;
+  document.getElementById("stat-entregues").innerText = appData.objetos.filter(
+    (o) => o.status === "Entregue",
+  ).length;
+
+  const datasMap = {};
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date();
+    d.setDate(d.getDate() - i);
+    datasMap[d.toISOString().split("T")[0]] = 0;
+  }
+  appData.objetos.forEach((obj) => {
+    if (datasMap[obj.data] !== undefined) datasMap[obj.data]++;
+  });
+
+  if (dashChart) dashChart.destroy();
+  const isDark = appData.theme === "dark";
+  dashChart = new Chart(
+    document.getElementById("objetosChart").getContext("2d"),
+    {
+      type: "line",
+      data: {
+        labels: Object.keys(datasMap).map(formatarData),
+        datasets: [
+          {
+            label: "Cadastros",
+            data: Object.values(datasMap),
+            borderColor: "#643698",
+            backgroundColor: "rgba(100, 54, 152, 0.2)",
+            fill: true,
+            tension: 0.4,
+          },
+        ],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { labels: { color: isDark ? "#fff" : "#333" } } },
+        scales: {
+          y: { ticks: { color: isDark ? "#fff" : "#333", stepSize: 1 } },
+          x: { ticks: { color: isDark ? "#fff" : "#333" } },
+        },
+      },
+    },
+  );
 }
 
 function openFormModal(id = null) {
   const formTitle = document.getElementById("modal-form-title");
-  removerFoto(); // Limpa foto anterior
+  removerFoto();
   if (id) {
     formTitle.innerText = "Editar Objeto";
     const obj = appData.objetos.find((o) => o.id === id);
@@ -486,20 +575,29 @@ function openFormModal(id = null) {
       document.getElementById("obj-data").value = obj.data;
       document.getElementById("obj-status").value = obj.status;
       document.getElementById("obj-desc").value = obj.desc;
-
+      document.getElementById("obj-dono").value = obj.dono || "";
+      document.getElementById("obj-telefone").value = obj.donoTel || "";
       if (obj.foto) {
         currentImageB64 = obj.foto;
         document.getElementById("preview-img").src = currentImageB64;
         document.getElementById("photo-preview").classList.remove("hidden");
       }
+      openModal("modal-form");
+      initMap();
+      if (obj.lat && obj.lng) updateMarker(obj.lat, obj.lng);
     }
   } else {
     formTitle.innerText = "Novo Objeto";
     document.getElementById("obj-data").value = new Date()
       .toISOString()
       .split("T")[0];
+    document.getElementById("obj-id").value = "";
+    document.getElementById("obj-lat").value = "";
+    document.getElementById("obj-lng").value = "";
+    openModal("modal-form");
+    initMap();
+    updateMarker(-3.7319, -38.5267);
   }
-  openModal("modal-form");
 }
 
 function salvarObjeto(e) {
@@ -510,12 +608,14 @@ function salvarObjeto(e) {
   const data = document.getElementById("obj-data").value;
   const status = document.getElementById("obj-status").value;
   const desc = document.getElementById("obj-desc").value.trim();
-  const foto = currentImageB64;
+  const dono = document.getElementById("obj-dono").value.trim();
+  const donoTel = document.getElementById("obj-telefone").value.trim();
+  const lat = document.getElementById("obj-lat").value;
+  const lng = document.getElementById("obj-lng").value;
 
   if (!nome || !data || !local) return;
-  const isEdit = idInput !== "";
 
-  if (isEdit) {
+  if (idInput !== "") {
     const index = appData.objetos.findIndex((o) => o.id === idInput);
     if (index !== -1) {
       appData.objetos[index] = {
@@ -525,55 +625,117 @@ function salvarObjeto(e) {
         data,
         status,
         desc,
-        foto,
+        dono,
+        donoTel,
+        lat,
+        lng,
+        foto: currentImageB64,
       };
       registrarHistorico("edicao", nome);
-      showToast("Objeto atualizado!", "success");
+      showToast("Objeto atualizado!");
     }
   } else {
-    const newId = "obj_" + new Date().getTime();
     appData.objetos.unshift({
-      id: newId,
+      id: "obj_" + new Date().getTime(),
       nome,
       local,
       data,
       status,
       desc,
-      foto,
+      dono,
+      donoTel,
+      lat,
+      lng,
+      foto: currentImageB64,
     });
     registrarHistorico("criacao", nome);
-    showToast("Objeto cadastrado com sucesso!", "success");
+    showToast("Objeto cadastrado!");
   }
-
   salvarDados();
   renderObjetos();
   renderDashboard();
   closeModal("modal-form");
 }
 
-function confirmarExclusao(id) {
-  const obj = appData.objetos.find((o) => o.id === id);
-  if (!obj) return;
-
-  const confirmBtn = document.getElementById("confirm-btn");
-  document.getElementById("confirm-message").innerHTML =
-    `Excluir permanentemente o objeto <strong>${obj.nome}</strong>?`;
-
-  const newBtn = confirmBtn.cloneNode(true);
-  confirmBtn.parentNode.replaceChild(newBtn, confirmBtn);
-  newBtn.addEventListener("click", () => {
-    appData.objetos = appData.objetos.filter((o) => o.id !== id);
-    registrarHistorico("exclusao", obj.nome);
-    salvarDados();
-    renderObjetos();
-    renderDashboard();
-    closeModal("modal-confirm");
-    showToast("Objeto excluído.", "info");
+function renderObjetos() {
+  const container = document.getElementById("objetos-container");
+  if (!container) return;
+  const search =
+    document.getElementById("filter-search")?.value.toLowerCase() || "";
+  const status = document.getElementById("filter-status")?.value || "todos";
+  const filtrados = appData.objetos.filter((obj) => {
+    if (
+      !(
+        obj.nome.toLowerCase().includes(search) ||
+        obj.desc.toLowerCase().includes(search) ||
+        obj.id.toLowerCase().includes(search)
+      )
+    )
+      return false;
+    if (status !== "todos" && obj.status !== status) return false;
+    return true;
   });
-  openModal("modal-confirm");
+
+  container.innerHTML = "";
+  if (filtrados.length === 0) {
+    container.innerHTML = `<div class="empty-state"><i class="fa-solid fa-box-open"></i><h2>Nenhum objeto encontrado</h2></div>`;
+    return;
+  }
+
+  filtrados.forEach((obj) => {
+    let badgeVencido = "";
+    if (obj.status === "Aguardando") {
+      const dias = Math.floor(
+        (new Date() - new Date(obj.data)) / (1000 * 60 * 60 * 24),
+      );
+      if (dias > 30)
+        badgeVencido = `<div style="background:#dc3545;color:white;font-size:0.75rem;padding:2px 8px;border-radius:10px;display:inline-block;margin-bottom:5px;">Vencido (${dias}d) - Descarte/Doação</div>`;
+    }
+
+    let waBtn = "";
+    if (obj.donoTel) {
+      const tel = obj.donoTel.replace(/\D/g, "");
+      const msg = encodeURIComponent(
+        `Olá ${obj.dono ? obj.dono : ""}, seu objeto "${obj.nome}" foi encontrado e encontra-se na recepção!`,
+      );
+      waBtn = `<button class="btn-action" title="Avisar WhatsApp" style="color:#25D366;" onclick="window.open('https://wa.me/55${tel}?text=${msg}', '_blank')"><i class="fa-brands fa-whatsapp"></i></button>`;
+    }
+
+    const pdfBtn =
+      obj.status === "Entregue"
+        ? `<button class="btn-action" title="Assinar e Gerar PDF" onclick="abrirAssinatura('${obj.id}')"><i class="fa-solid fa-file-signature"></i></button>`
+        : "";
+    const qrBtn = `<button class="btn-action" title="Gerar Etiqueta QR" onclick="gerarEtiquetaQR('${obj.id}', '${obj.nome}')"><i class="fa-solid fa-qrcode"></i></button>`;
+    const imgHtml = obj.foto
+      ? `<div class="card-img"><img src="${obj.foto}"></div>`
+      : "";
+    const mapLink =
+      obj.lat && obj.lng
+        ? ` <a href="https://maps.google.com/?q=${obj.lat},${obj.lng}" target="_blank" style="color:var(--cor-roxo); font-size:0.8rem;"><i class="fa-solid fa-map"></i> Ver Mapa</a>`
+        : "";
+
+    const card = document.createElement("div");
+    card.className = "card";
+    card.innerHTML = `
+            ${imgHtml}
+            <div class="card-header" style="${obj.foto ? "padding-top:1rem;" : ""}">
+                <div><h3 class="card-title">${obj.nome}</h3>${badgeVencido} <span class="card-date"><i class="fa-regular fa-calendar"></i> ${formatarData(obj.data)}</span></div>
+                <span class="badge ${obj.status.toLowerCase()}">${obj.status}</span>
+            </div>
+            <div class="card-body">
+                <div class="card-info-item"><i class="fa-solid fa-location-dot"></i> <span>${obj.local}</span> ${mapLink}</div>
+                ${obj.dono ? `<div class="card-info-item"><i class="fa-solid fa-user"></i> <span>Dono: ${obj.dono}</span></div>` : ""}
+                <p class="card-desc">${obj.desc || "<em>Sem descrição</em>"}</p>
+            </div>
+            <div class="card-actions">
+                ${waBtn} ${qrBtn} ${pdfBtn}
+                <button class="btn-action edit" onclick="openFormModal('${obj.id}')"><i class="fa-solid fa-pen"></i></button>
+            </div>`;
+    container.appendChild(card);
+  });
 }
 
-// ---- Funções de Usuário ----
+// ================= CRUD USUÁRIOS =================
 function openUserFormModal(id = null) {
   const formTitle = document.getElementById("modal-user-title");
   if (id) {
@@ -590,6 +752,7 @@ function openUserFormModal(id = null) {
     }
   } else {
     formTitle.innerText = "Novo Usuário";
+    document.getElementById("usr-id").value = "";
   }
   openModal("modal-user-form");
 }
@@ -624,11 +787,11 @@ function salvarUsuario(e) {
         sessionStorage.setItem("axo_session", JSON.stringify(currentUser));
         iniciarApp();
       }
-      showToast("Usuário editado com sucesso.", "success");
+      showToast("Usuário editado.", "success");
     }
   } else {
     if (appData.usuarios.some((u) => u.email === email)) {
-      showToast("Este e-mail já está em uso.", "error");
+      showToast("E-mail já em uso.", "error");
       return;
     }
     appData.usuarios.unshift({
@@ -641,41 +804,16 @@ function salvarUsuario(e) {
       role,
     });
     registrarHistorico("criacao", "Usuário: " + nome);
-    showToast("Novo usuário criado.", "success");
+    showToast("Usuário criado.", "success");
   }
-
   salvarDados();
   renderUsuarios();
   closeModal("modal-user-form");
 }
 
-function confirmarExclusaoUsuario(id) {
-  if (id === currentUser.id) {
-    showToast("Não é possível excluir a si mesmo.", "error");
-    return;
-  }
-  const usr = appData.usuarios.find((u) => u.id === id);
-  if (!usr) return;
-
-  const confirmBtn = document.getElementById("confirm-btn");
-  document.getElementById("confirm-message").innerHTML =
-    `Excluir o acesso de <strong>${usr.nome}</strong>?`;
-  const newBtn = confirmBtn.cloneNode(true);
-  confirmBtn.parentNode.replaceChild(newBtn, confirmBtn);
-
-  newBtn.addEventListener("click", () => {
-    appData.usuarios = appData.usuarios.filter((u) => u.id !== id);
-    registrarHistorico("exclusao", "Usuário: " + usr.nome);
-    salvarDados();
-    renderUsuarios();
-    closeModal("modal-confirm");
-    showToast("Usuário removido.", "info");
-  });
-  openModal("modal-confirm");
-}
-
 function renderUsuarios() {
   const container = document.getElementById("usuarios-container");
+  if (!container) return;
   container.innerHTML = "";
   appData.usuarios.forEach((usr) => {
     const roleClass = usr.role === "admin" ? "aguardando" : "entregue";
@@ -699,121 +837,55 @@ function renderUsuarios() {
   });
 }
 
-// ---- Renderização Objetos e Filtros ----
-function configurarFiltros() {
-  const reRender = () => renderObjetos();
-  const bind = (id, evt) => {
-    const el = document.getElementById(id);
-    if (el) el.addEventListener(evt, reRender);
-  };
-
-  bind("filter-search", "input");
-  bind("filter-status", "change");
-  bind("filter-date-start", "change");
-  bind("filter-date-end", "change");
-
-  const periodo = document.getElementById("filter-periodo");
-  const custom = document.getElementById("custom-date-container");
-  if (periodo) {
-    periodo.addEventListener("change", (e) => {
-      if (e.target.value === "custom") custom.classList.remove("hidden");
-      else {
-        custom.classList.add("hidden");
-        document.getElementById("filter-date-start").value = "";
-        document.getElementById("filter-date-end").value = "";
-      }
-      reRender();
-    });
+function confirmarExclusaoUsuario(id) {
+  if (id === currentUser.id) {
+    showToast("Não é possível excluir a si mesmo.", "error");
+    return;
   }
-}
-
-function getFilteredObjetos() {
-  const search =
-    document.getElementById("filter-search")?.value.toLowerCase() || "";
-  const status = document.getElementById("filter-status")?.value || "todos";
-  const periodo = document.getElementById("filter-periodo")?.value || "todos";
-  const hoje = new Date();
-  hoje.setHours(23, 59, 59, 999);
-
-  return appData.objetos.filter((obj) => {
-    if (
-      !(
-        obj.nome.toLowerCase().includes(search) ||
-        obj.desc.toLowerCase().includes(search)
-      )
-    )
-      return false;
-    if (status !== "todos" && obj.status !== status) return false;
-
-    const objData = new Date(obj.data + "T12:00:00");
-    if (periodo === "7" && objData < new Date(hoje).setDate(hoje.getDate() - 7))
-      return false;
-    if (
-      periodo === "30" &&
-      objData < new Date(hoje).setDate(hoje.getDate() - 30)
-    )
-      return false;
-    if (periodo === "custom") {
-      const start = document.getElementById("filter-date-start").value;
-      const end = document.getElementById("filter-date-end").value;
-      if (start && objData < new Date(start + "T00:00:00")) return false;
-      if (end && objData > new Date(end + "T23:59:59")) return false;
-    }
-    return true;
+  const usr = appData.usuarios.find((u) => u.id === id);
+  if (!usr) return;
+  const confirmBtn = document.getElementById("confirm-btn");
+  document.getElementById("confirm-message").innerHTML =
+    `Excluir o acesso de <strong>${usr.nome}</strong>?`;
+  const newBtn = confirmBtn.cloneNode(true);
+  confirmBtn.parentNode.replaceChild(newBtn, confirmBtn);
+  newBtn.addEventListener("click", () => {
+    appData.usuarios = appData.usuarios.filter((u) => u.id !== id);
+    registrarHistorico("exclusao", "Usuário: " + usr.nome);
+    salvarDados();
+    renderUsuarios();
+    closeModal("modal-confirm");
+    showToast("Usuário removido.", "info");
   });
+  openModal("modal-confirm");
 }
 
+// ================= HISTÓRICO E EXCLUSÃO OBJETOS =================
 function formatarData(dataISO) {
   const p = dataISO.split("-");
   return `${p[2]}/${p[1]}/${p[0]}`;
 }
 
-function renderObjetos() {
-  const container = document.getElementById("objetos-container");
-  if (!container) return;
-  const filtrados = getFilteredObjetos();
-  container.innerHTML = "";
-
-  if (filtrados.length === 0) {
-    container.innerHTML = `<div class="empty-state"><i class="fa-solid fa-box-open"></i><h2>Nenhum objeto encontrado</h2></div>`;
-    return;
-  }
-
-  filtrados.forEach((obj) => {
-    const statusClass = obj.status.toLowerCase();
-
-    // Html da imagem se existir
-    const imgHtml = obj.foto
-      ? `<div class="card-img"><img src="${obj.foto}" alt="Foto do Objeto"></div>`
-      : "";
-    // Botão de gerar termo
-    const pdfBtn =
-      obj.status === "Entregue"
-        ? `<button class="btn-action" title="Gerar Termo" onclick="gerarTermoPDF('${obj.id}')"><i class="fa-solid fa-file-pdf"></i></button>`
-        : "";
-
-    const card = document.createElement("div");
-    card.className = "card";
-    card.innerHTML = `
-            ${imgHtml}
-            <div class="card-header" style="${obj.foto ? "padding-top:1rem;" : ""}">
-                <div><h3 class="card-title">${obj.nome}</h3><span class="card-date"><i class="fa-regular fa-calendar"></i> ${formatarData(obj.data)}</span></div>
-                <span class="badge ${statusClass}">${obj.status}</span>
-            </div>
-            <div class="card-body">
-                <div class="card-info-item"><i class="fa-solid fa-location-dot"></i> <span>${obj.local}</span></div>
-                <p class="card-desc">${obj.desc || "<em>Sem descrição</em>"}</p>
-            </div>
-            <div class="card-actions">
-                ${pdfBtn}
-                <button class="btn-action edit" onclick="openFormModal('${obj.id}')"><i class="fa-solid fa-pen"></i></button>
-                <button class="btn-action delete" onclick="confirmarExclusao('${obj.id}')"><i class="fa-solid fa-trash"></i></button>
-            </div>`;
-    container.appendChild(card);
+function confirmarExclusao(id) {
+  const obj = appData.objetos.find((o) => o.id === id);
+  if (!obj) return;
+  const confirmBtn = document.getElementById("confirm-btn");
+  document.getElementById("confirm-message").innerHTML =
+    `Excluir permanentemente <strong>${obj.nome}</strong>?`;
+  const newBtn = confirmBtn.cloneNode(true);
+  confirmBtn.parentNode.replaceChild(newBtn, confirmBtn);
+  newBtn.addEventListener("click", () => {
+    appData.objetos = appData.objetos.filter((o) => o.id !== id);
+    registrarHistorico("exclusao", obj.nome);
+    salvarDados();
+    renderObjetos();
+    renderDashboard();
+    closeModal("modal-confirm");
+    showToast("Objeto excluído.", "info");
   });
+  openModal("modal-confirm");
 }
 
-// ---- Historico e Backup ----
 function registrarHistorico(tipo, detalhe) {
   appData.historico.unshift({
     id: "hist_" + new Date().getTime(),
@@ -862,12 +934,7 @@ function renderHistorico() {
     const dataFormatada = new Date(item.timestamp).toLocaleString("pt-BR");
     const li = document.createElement("li");
     li.className = "history-item";
-    li.innerHTML = `
-            <div class="history-icon ${info.classe}"><i class="fa-solid ${info.icone}"></i></div>
-            <div class="history-details">
-                <div class="history-title">${item.usuario} ${info.texto} <strong>${item.objeto}</strong></div>
-                <div class="history-meta"><span><i class="fa-regular fa-clock"></i> ${dataFormatada}</span></div>
-            </div>`;
+    li.innerHTML = `<div class="history-icon ${info.classe}"><i class="fa-solid ${info.icone}"></i></div><div class="history-details"><div class="history-title">${item.usuario} ${info.texto} <strong>${item.objeto}</strong></div><div class="history-meta"><span><i class="fa-regular fa-clock"></i> ${dataFormatada}</span></div></div>`;
     container.appendChild(li);
   });
 }
@@ -890,6 +957,7 @@ function confirmarLimparHistorico() {
   openModal("modal-confirm");
 }
 
+// ================= BACKUP E RESTAURAÇÃO =================
 function exportData() {
   registrarHistorico("backup", "Exportação JSON");
   salvarDados();
@@ -918,7 +986,7 @@ function processarImportacao(event) {
     reader.onload = function (e) {
       try {
         const json = JSON.parse(e.target.result);
-        if (json.objetos && json.historico) {
+        if (json.objetos && json.historico && json.usuarios) {
           appData = json;
           registrarHistorico("importacao", file.name);
           salvarDados();
@@ -964,4 +1032,14 @@ function restaurarAutoBackup() {
     }
   });
   openModal("modal-confirm");
+}
+
+// ================= FILTROS =================
+function configurarFiltros() {
+  const bind = (id, evt) => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener(evt, renderObjetos);
+  };
+  bind("filter-search", "input");
+  bind("filter-status", "change");
 }
