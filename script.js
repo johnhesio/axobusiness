@@ -1,5 +1,5 @@
 /**
- * AXÔ Business - Aplicação Core
+ * AXÔ Business - Aplicação Core Completa
  */
 
 // ================= ESTADO DA APLICAÇÃO =================
@@ -12,25 +12,21 @@ let appData = {
 };
 
 let currentUser = null;
+let currentImageB64 = null; // Armazena a foto atual em memória
+let dashChart = null; // Instância do gráfico
 
 // ================= INICIALIZAÇÃO =================
 document.addEventListener("DOMContentLoaded", () => {
   carregarDados();
   garantirAdminPadrao();
   aplicarTemaAtual();
-
-  // Verifica sessão
   verificarSessao();
-
-  // Eventos globais
   configurarNavegacao();
   configurarFiltros();
 
-  // Setar data máxima no formulário para hoje
   const hoje = new Date().toISOString().split("T")[0];
   document.getElementById("obj-data").max = hoje;
 
-  // Fechar dropdown de perfil se clicar fora
   document.addEventListener("click", (e) => {
     if (!e.target.closest(".user-profile")) {
       document.getElementById("user-dropdown").classList.add("hidden");
@@ -38,7 +34,33 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 });
 
-// ================= AUTENTICAÇÃO E SESSÃO =================
+// ================= TOAST NOTIFICATIONS =================
+function showToast(message, type = "success") {
+  const container = document.getElementById("toast-container");
+  const toast = document.createElement("div");
+  toast.className = `toast toast-${type}`;
+
+  const icon =
+    type === "success"
+      ? "fa-check-circle"
+      : type === "error"
+        ? "fa-circle-xmark"
+        : "fa-info-circle";
+
+  toast.innerHTML = `<i class="fa-solid ${icon}"></i> <span>${message}</span>`;
+  container.appendChild(toast);
+
+  // Fade In
+  setTimeout(() => toast.classList.add("show"), 10);
+
+  // Remove apos 3s
+  setTimeout(() => {
+    toast.classList.remove("show");
+    setTimeout(() => toast.remove(), 300); // Aguarda animação CSS
+  }, 3000);
+}
+
+// ================= AUTENTICAÇÃO =================
 function garantirAdminPadrao() {
   if (appData.usuarios.length === 0) {
     appData.usuarios.push({
@@ -68,7 +90,6 @@ function realizarLogin(e) {
   e.preventDefault();
   const email = document.getElementById("login-email").value;
   const senha = document.getElementById("login-senha").value;
-  const errorMsg = document.getElementById("login-error");
 
   const usuario = appData.usuarios.find(
     (u) => u.email === email && u.senha === senha,
@@ -77,10 +98,10 @@ function realizarLogin(e) {
   if (usuario) {
     currentUser = usuario;
     sessionStorage.setItem("axo_session", JSON.stringify(currentUser));
-    errorMsg.classList.add("hidden");
+    showToast(`Bem-vindo, ${usuario.nome}!`, "success");
     iniciarApp();
   } else {
-    errorMsg.classList.remove("hidden");
+    showToast("E-mail ou senha incorretos.", "error");
   }
 }
 
@@ -88,6 +109,7 @@ function realizarLogout() {
   currentUser = null;
   sessionStorage.removeItem("axo_session");
   document.getElementById("login-form").reset();
+  showToast("Sessão encerrada com sucesso.", "info");
   mostrarLogin();
 }
 
@@ -100,7 +122,6 @@ function iniciarApp() {
   document.getElementById("login-screen").classList.add("hidden");
   document.getElementById("app-container").classList.remove("hidden");
 
-  // Atualizar UI com dados do usuário
   document.getElementById("display-user-name").innerText =
     currentUser.nome.split(" ")[0];
   document.getElementById("dropdown-name").innerText = currentUser.nome;
@@ -111,26 +132,23 @@ function iniciarApp() {
   roleBadge.className =
     "badge " + (currentUser.role === "admin" ? "aguardando" : "entregue");
 
-  // Aplicar permissões
   aplicarPermissoes();
 
-  // Renderizar views iniciais
+  // Render inicial
+  renderDashboard();
   renderObjetos();
   renderHistorico();
   if (currentUser.role === "admin") renderUsuarios();
   atualizarTextoUltimoBackup();
 
-  // Forçar aba inicial
-  document.querySelector('.nav-item[data-target="view-objetos"]').click();
+  document.querySelector('.nav-item[data-target="view-dashboard"]').click();
 }
 
 function aplicarPermissoes() {
   const adminElements = document.querySelectorAll(".admin-only");
-  if (currentUser.role === "admin") {
-    adminElements.forEach((el) => (el.style.display = ""));
-  } else {
-    adminElements.forEach((el) => (el.style.display = "none"));
-  }
+  adminElements.forEach(
+    (el) => (el.style.display = currentUser.role === "admin" ? "" : "none"),
+  );
 }
 
 // ================= PERSISTÊNCIA =================
@@ -173,7 +191,217 @@ function atualizarTextoUltimoBackup() {
   }
 }
 
-// ================= NAVEGAÇÃO E TEMA =================
+// ================= COMPRESSÃO E UPLOAD DE FOTOS (ZERO-UPLOAD) =================
+function processarImagem(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    const img = new Image();
+    img.onload = () => {
+      // Comprimir in-memory com Canvas
+      const canvas = document.createElement("canvas");
+      const MAX_WIDTH = 400; // Tamanho ideal para thumbnails sem gastar DB
+      const scaleSize = MAX_WIDTH / img.width;
+
+      canvas.width = MAX_WIDTH;
+      canvas.height = img.height * scaleSize;
+
+      const ctx = canvas.getContext("2d");
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+      currentImageB64 = canvas.toDataURL("image/jpeg", 0.7); // Compressão Jpeg 70%
+
+      // Exibir preview
+      document.getElementById("preview-img").src = currentImageB64;
+      document.getElementById("photo-preview").classList.remove("hidden");
+    };
+    img.src = e.target.result;
+  };
+  reader.readAsDataURL(file);
+}
+
+function removerFoto() {
+  currentImageB64 = null;
+  document.getElementById("obj-foto").value = "";
+  document.getElementById("photo-preview").classList.add("hidden");
+}
+
+// ================= GERAÇÃO DE PDF =================
+function gerarTermoPDF(id) {
+  const obj = appData.objetos.find((o) => o.id === id);
+  if (!obj) return;
+
+  try {
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF();
+
+    // Cores Oficiais
+    doc.setFillColor(100, 54, 152); // Roxo AXÔ
+    doc.rect(0, 0, 210, 40, "F");
+
+    doc.setTextColor(255, 255, 255);
+    doc.setFontSize(22);
+    doc.text("AXÔ Business", 105, 20, null, null, "center");
+    doc.setFontSize(14);
+    doc.text("Termo Probatório de Entrega", 105, 30, null, null, "center");
+
+    // Corpo
+    doc.setTextColor(50, 50, 50);
+    doc.setFontSize(12);
+
+    let y = 60;
+    doc.text(
+      `O presente termo documenta a entrega formal do objeto abaixo descrito,`,
+      20,
+      y,
+    );
+    y += 10;
+    doc.text(`previamente cadastrado no sistema AXÔ Business.`, 20, y);
+
+    y += 20;
+    doc.setFont("helvetica", "bold");
+    doc.text("Detalhes do Objeto:", 20, y);
+    doc.setFont("helvetica", "normal");
+
+    y += 10;
+    doc.text(`ID do Registro: ${obj.id}`, 20, y);
+    y += 10;
+    doc.text(`Objeto: ${obj.nome}`, 20, y);
+    y += 10;
+    doc.text(`Local de Origem: ${obj.local}`, 20, y);
+    y += 10;
+    doc.text(`Data do Registro: ${formatarData(obj.data)}`, 20, y);
+    y += 10;
+
+    // Tratar texto longo na descrição
+    const descLines = doc.splitTextToSize(
+      `Descrição: ${obj.desc || "Nenhuma"}`,
+      170,
+    );
+    doc.text(descLines, 20, y);
+
+    y += descLines.length * 10 + 20;
+
+    doc.text(
+      "Declaro para os devidos fins ter recebido o objeto acima descrito",
+      20,
+      y,
+    );
+    y += 10;
+    doc.text("nas condições especificadas.", 20, y);
+
+    // Assinaturas
+    y += 40;
+    doc.line(30, y, 90, y); // Linha Entregador
+    doc.line(120, y, 180, y); // Linha Recebedor
+
+    y += 5;
+    doc.setFontSize(10);
+    doc.text(`Entregue por: ${currentUser.nome}`, 60, y, null, null, "center");
+    doc.text("Assinatura de quem retirou", 150, y, null, null, "center");
+
+    // Footer com data gerada
+    doc.setFontSize(8);
+    doc.setTextColor(150, 150, 150);
+    doc.text(
+      `Documento gerado eletronicamente em: ${new Date().toLocaleString("pt-BR")}`,
+      105,
+      280,
+      null,
+      null,
+      "center",
+    );
+
+    doc.save(`Termo_AXO_${obj.nome.replace(/\s+/g, "_")}.pdf`);
+    showToast("Termo PDF gerado com sucesso!", "success");
+    registrarHistorico("backup", `Gerou PDF do Objeto: ${obj.nome}`);
+  } catch (err) {
+    showToast("Erro ao gerar PDF. Verifique sua conexão.", "error");
+    console.error(err);
+  }
+}
+
+// ================= DASHBOARD ANALÍTICO =================
+function renderDashboard() {
+  const total = appData.objetos.length;
+  const aguardando = appData.objetos.filter(
+    (o) => o.status === "Aguardando",
+  ).length;
+  const entregues = appData.objetos.filter(
+    (o) => o.status === "Entregue",
+  ).length;
+
+  document.getElementById("stat-total").innerText = total;
+  document.getElementById("stat-aguardando").innerText = aguardando;
+  document.getElementById("stat-entregues").innerText = entregues;
+
+  // Agrupar itens por data para o Gráfico
+  const datasMap = {};
+  // Pegar ultimos 7 dias
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date();
+    d.setDate(d.getDate() - i);
+    datasMap[d.toISOString().split("T")[0]] = 0;
+  }
+
+  appData.objetos.forEach((obj) => {
+    if (datasMap[obj.data] !== undefined) {
+      datasMap[obj.data]++;
+    }
+  });
+
+  const labels = Object.keys(datasMap).map(formatarData);
+  const dataVals = Object.values(datasMap);
+
+  const ctx = document.getElementById("objetosChart").getContext("2d");
+
+  // Destruir grafico anterior se existir para evitar bug de hover
+  if (dashChart) dashChart.destroy();
+
+  const isDark = appData.theme === "dark";
+
+  dashChart = new Chart(ctx, {
+    type: "line",
+    data: {
+      labels: labels,
+      datasets: [
+        {
+          label: "Objetos Cadastrados",
+          data: dataVals,
+          borderColor: "#643698",
+          backgroundColor: "rgba(100, 54, 152, 0.2)",
+          tension: 0.4,
+          fill: true,
+          borderWidth: 3,
+          pointBackgroundColor: "#E07815",
+        },
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { labels: { color: isDark ? "#e0e0e0" : "#333" } },
+      },
+      scales: {
+        y: {
+          beginAtZero: true,
+          ticks: { stepSize: 1, color: isDark ? "#b0b0b0" : "#666" },
+          grid: { color: isDark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.1)" },
+        },
+        x: {
+          ticks: { color: isDark ? "#b0b0b0" : "#666" },
+          grid: { color: isDark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.1)" },
+        },
+      },
+    },
+  });
+}
+
+// ================= RESTANTE DO CÓDIGO (Navegação, CRUD) =================
+
 function configurarNavegacao() {
   const tabs = document.querySelectorAll(".nav-item[data-target]");
   const pageTitle = document.getElementById("current-page-title");
@@ -182,7 +410,6 @@ function configurarNavegacao() {
     tab.addEventListener("click", (e) => {
       const btn = e.currentTarget;
       tabs.forEach((t) => t.classList.remove("active"));
-
       document
         .querySelectorAll(".view-section")
         .forEach((sec) => sec.classList.add("hidden"));
@@ -191,63 +418,54 @@ function configurarNavegacao() {
       btn.classList.add("active");
       document.getElementById(targetId).classList.remove("hidden");
 
-      if (pageTitle && btn.getAttribute("data-title")) {
+      if (pageTitle && btn.getAttribute("data-title"))
         pageTitle.innerText = btn.getAttribute("data-title");
-      }
 
       if (targetId === "view-historico") renderHistorico();
       if (targetId === "view-usuarios") renderUsuarios();
+      if (targetId === "view-dashboard") renderDashboard();
 
-      if (window.innerWidth <= 768) {
+      if (window.innerWidth <= 768)
         document.getElementById("sidebar").classList.remove("mobile-open");
-      }
     });
   });
 
-  const themeBtn = document.getElementById("theme-btn");
-  themeBtn.addEventListener("click", () => {
+  document.getElementById("theme-btn").addEventListener("click", () => {
     appData.theme = appData.theme === "light" ? "dark" : "light";
     aplicarTemaAtual();
     salvarDadosSilencioso();
+    renderDashboard(); // Atualiza cores do gráfico
   });
 
-  const toggleSidebarBtn = document.getElementById("toggle-sidebar");
-  if (toggleSidebarBtn) {
-    toggleSidebarBtn.addEventListener("click", () => {
-      document.getElementById("sidebar").classList.toggle("collapsed");
-    });
-  }
+  document.getElementById("toggle-sidebar").addEventListener("click", () => {
+    document.getElementById("sidebar").classList.toggle("collapsed");
+    setTimeout(() => {
+      if (dashChart) dashChart.resize();
+    }, 300); // Resize chart delay
+  });
 
-  const mobileMenuBtn = document.getElementById("mobile-menu-btn");
-  if (mobileMenuBtn) {
-    mobileMenuBtn.addEventListener("click", () => {
-      document.getElementById("sidebar").classList.toggle("mobile-open");
-    });
-  }
+  document.getElementById("mobile-menu-btn").addEventListener("click", () => {
+    document.getElementById("sidebar").classList.toggle("mobile-open");
+  });
 }
 
 function aplicarTemaAtual() {
   document.documentElement.setAttribute("data-theme", appData.theme);
   const icon = document.querySelector("#theme-btn i");
-  if (icon) {
-    if (appData.theme === "dark") {
-      icon.className = "fa-solid fa-sun";
-    } else {
-      icon.className = "fa-solid fa-moon";
-    }
-  }
+  if (icon)
+    icon.className =
+      appData.theme === "dark" ? "fa-solid fa-sun" : "fa-solid fa-moon";
 }
 
-// ================= MODAIS =================
 function openModal(id) {
   document.getElementById(id).classList.add("active");
 }
-
 function closeModal(id) {
   document.getElementById(id).classList.remove("active");
   if (id === "modal-form") {
     document.getElementById("objeto-form").reset();
     document.getElementById("obj-id").value = "";
+    removerFoto();
   }
   if (id === "modal-user-form") {
     document.getElementById("usuario-form").reset();
@@ -255,9 +473,9 @@ function closeModal(id) {
   }
 }
 
-// ================= CRUD DE OBJETOS =================
 function openFormModal(id = null) {
   const formTitle = document.getElementById("modal-form-title");
+  removerFoto(); // Limpa foto anterior
   if (id) {
     formTitle.innerText = "Editar Objeto";
     const obj = appData.objetos.find((o) => o.id === id);
@@ -268,6 +486,12 @@ function openFormModal(id = null) {
       document.getElementById("obj-data").value = obj.data;
       document.getElementById("obj-status").value = obj.status;
       document.getElementById("obj-desc").value = obj.desc;
+
+      if (obj.foto) {
+        currentImageB64 = obj.foto;
+        document.getElementById("preview-img").src = currentImageB64;
+        document.getElementById("photo-preview").classList.remove("hidden");
+      }
     }
   } else {
     formTitle.innerText = "Novo Objeto";
@@ -286,25 +510,44 @@ function salvarObjeto(e) {
   const data = document.getElementById("obj-data").value;
   const status = document.getElementById("obj-status").value;
   const desc = document.getElementById("obj-desc").value.trim();
+  const foto = currentImageB64;
 
   if (!nome || !data || !local) return;
-
   const isEdit = idInput !== "";
 
   if (isEdit) {
     const index = appData.objetos.findIndex((o) => o.id === idInput);
     if (index !== -1) {
-      appData.objetos[index] = { id: idInput, nome, local, data, status, desc };
+      appData.objetos[index] = {
+        id: idInput,
+        nome,
+        local,
+        data,
+        status,
+        desc,
+        foto,
+      };
       registrarHistorico("edicao", nome);
+      showToast("Objeto atualizado!", "success");
     }
   } else {
     const newId = "obj_" + new Date().getTime();
-    appData.objetos.unshift({ id: newId, nome, local, data, status, desc });
+    appData.objetos.unshift({
+      id: newId,
+      nome,
+      local,
+      data,
+      status,
+      desc,
+      foto,
+    });
     registrarHistorico("criacao", nome);
+    showToast("Objeto cadastrado com sucesso!", "success");
   }
 
   salvarDados();
   renderObjetos();
+  renderDashboard();
   closeModal("modal-form");
 }
 
@@ -318,19 +561,19 @@ function confirmarExclusao(id) {
 
   const newBtn = confirmBtn.cloneNode(true);
   confirmBtn.parentNode.replaceChild(newBtn, confirmBtn);
-
   newBtn.addEventListener("click", () => {
     appData.objetos = appData.objetos.filter((o) => o.id !== id);
     registrarHistorico("exclusao", obj.nome);
     salvarDados();
     renderObjetos();
+    renderDashboard();
     closeModal("modal-confirm");
+    showToast("Objeto excluído.", "info");
   });
-
   openModal("modal-confirm");
 }
 
-// ================= CRUD DE USUÁRIOS =================
+// ---- Funções de Usuário ----
 function openUserFormModal(id = null) {
   const formTitle = document.getElementById("modal-user-title");
   if (id) {
@@ -363,9 +606,7 @@ function salvarUsuario(e) {
 
   if (!nome || !email || !senha) return;
 
-  const isEdit = idInput !== "";
-
-  if (isEdit) {
+  if (idInput !== "") {
     const index = appData.usuarios.findIndex((u) => u.id === idInput);
     if (index !== -1) {
       appData.usuarios[index] = {
@@ -378,23 +619,20 @@ function salvarUsuario(e) {
         role,
       };
       registrarHistorico("edicao", "Usuário: " + nome);
-
-      // Atualiza a própria sessão se estiver editando a si mesmo
       if (currentUser.id === idInput) {
         currentUser = appData.usuarios[index];
         sessionStorage.setItem("axo_session", JSON.stringify(currentUser));
-        iniciarApp(); // Refresh interface
+        iniciarApp();
       }
+      showToast("Usuário editado com sucesso.", "success");
     }
   } else {
-    // Valida email unico
     if (appData.usuarios.some((u) => u.email === email)) {
-      alert("Este e-mail já está em uso.");
+      showToast("Este e-mail já está em uso.", "error");
       return;
     }
-    const newId = "usr_" + new Date().getTime();
     appData.usuarios.unshift({
-      id: newId,
+      id: "usr_" + new Date().getTime(),
       nome,
       cpf,
       telefone,
@@ -403,6 +641,7 @@ function salvarUsuario(e) {
       role,
     });
     registrarHistorico("criacao", "Usuário: " + nome);
+    showToast("Novo usuário criado.", "success");
   }
 
   salvarDados();
@@ -412,17 +651,15 @@ function salvarUsuario(e) {
 
 function confirmarExclusaoUsuario(id) {
   if (id === currentUser.id) {
-    alert("Você não pode excluir a si mesmo enquanto estiver logado.");
+    showToast("Não é possível excluir a si mesmo.", "error");
     return;
   }
-
   const usr = appData.usuarios.find((u) => u.id === id);
   if (!usr) return;
 
   const confirmBtn = document.getElementById("confirm-btn");
   document.getElementById("confirm-message").innerHTML =
-    `Excluir o acesso do usuário <strong>${usr.nome}</strong>?`;
-
+    `Excluir o acesso de <strong>${usr.nome}</strong>?`;
   const newBtn = confirmBtn.cloneNode(true);
   confirmBtn.parentNode.replaceChild(newBtn, confirmBtn);
 
@@ -432,70 +669,62 @@ function confirmarExclusaoUsuario(id) {
     salvarDados();
     renderUsuarios();
     closeModal("modal-confirm");
+    showToast("Usuário removido.", "info");
   });
-
   openModal("modal-confirm");
 }
 
 function renderUsuarios() {
   const container = document.getElementById("usuarios-container");
   container.innerHTML = "";
-
   appData.usuarios.forEach((usr) => {
     const roleClass = usr.role === "admin" ? "aguardando" : "entregue";
     const roleName = usr.role === "admin" ? "Admin" : "Funcionário";
-
     const card = document.createElement("div");
     card.className = "card";
     card.innerHTML = `
             <div class="card-header">
-                <div>
-                    <h3 class="card-title"><i class="fa-solid fa-user-circle" style="color:var(--cor-roxo)"></i> ${usr.nome}</h3>
-                    <span class="card-date">${usr.email}</span>
-                </div>
+                <div><h3 class="card-title"><i class="fa-solid fa-user-circle" style="color:var(--cor-roxo)"></i> ${usr.nome}</h3><span class="card-date">${usr.email}</span></div>
                 <span class="badge ${roleClass}">${roleName}</span>
             </div>
-            
             <div class="card-body">
                 <div class="card-info-item"><i class="fa-solid fa-id-card"></i> <span>CPF: ${usr.cpf || "Não inf."}</span></div>
                 <div class="card-info-item"><i class="fa-solid fa-phone"></i> <span>Tel: ${usr.telefone || "Não inf."}</span></div>
             </div>
-
             <div class="card-actions">
-                <button class="btn-action edit" onclick="openUserFormModal('${usr.id}')"><i class="fa-solid fa-pen"></i> Editar</button>
-                <button class="btn-action delete" onclick="confirmarExclusaoUsuario('${usr.id}')"><i class="fa-solid fa-trash"></i> Excluir</button>
-            </div>
-        `;
+                <button class="btn-action edit" onclick="openUserFormModal('${usr.id}')"><i class="fa-solid fa-pen"></i></button>
+                <button class="btn-action delete" onclick="confirmarExclusaoUsuario('${usr.id}')"><i class="fa-solid fa-trash"></i></button>
+            </div>`;
     container.appendChild(card);
   });
 }
 
-// ================= FILTROS E RENDERIZAÇÃO OBJETOS =================
+// ---- Renderização Objetos e Filtros ----
 function configurarFiltros() {
-  const search = document.getElementById("filter-search");
-  const status = document.getElementById("filter-status");
-  const periodo = document.getElementById("filter-periodo");
-  const dateStart = document.getElementById("filter-date-start");
-  const dateEnd = document.getElementById("filter-date-end");
-  const customGroup = document.getElementById("custom-date-container");
-
   const reRender = () => renderObjetos();
+  const bind = (id, evt) => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener(evt, reRender);
+  };
 
-  if (search) search.addEventListener("input", reRender);
-  if (status) status.addEventListener("change", reRender);
-  if (dateStart) dateStart.addEventListener("change", reRender);
-  if (dateEnd) dateEnd.addEventListener("change", reRender);
+  bind("filter-search", "input");
+  bind("filter-status", "change");
+  bind("filter-date-start", "change");
+  bind("filter-date-end", "change");
 
-  if (periodo)
+  const periodo = document.getElementById("filter-periodo");
+  const custom = document.getElementById("custom-date-container");
+  if (periodo) {
     periodo.addEventListener("change", (e) => {
-      if (e.target.value === "custom") customGroup.classList.remove("hidden");
+      if (e.target.value === "custom") custom.classList.remove("hidden");
       else {
-        customGroup.classList.add("hidden");
-        dateStart.value = "";
-        dateEnd.value = "";
+        custom.classList.add("hidden");
+        document.getElementById("filter-date-start").value = "";
+        document.getElementById("filter-date-end").value = "";
       }
       reRender();
     });
+  }
 }
 
 function getFilteredObjetos() {
@@ -503,27 +732,28 @@ function getFilteredObjetos() {
     document.getElementById("filter-search")?.value.toLowerCase() || "";
   const status = document.getElementById("filter-status")?.value || "todos";
   const periodo = document.getElementById("filter-periodo")?.value || "todos";
-
   const hoje = new Date();
   hoje.setHours(23, 59, 59, 999);
 
   return appData.objetos.filter((obj) => {
-    const matchTexto =
-      obj.nome.toLowerCase().includes(search) ||
-      obj.desc.toLowerCase().includes(search);
-    if (!matchTexto) return false;
+    if (
+      !(
+        obj.nome.toLowerCase().includes(search) ||
+        obj.desc.toLowerCase().includes(search)
+      )
+    )
+      return false;
     if (status !== "todos" && obj.status !== status) return false;
 
     const objData = new Date(obj.data + "T12:00:00");
-    if (periodo === "7") {
-      const seteDiasAtras = new Date(hoje);
-      seteDiasAtras.setDate(hoje.getDate() - 7);
-      if (objData < seteDiasAtras) return false;
-    } else if (periodo === "30") {
-      const trintaDiasAtras = new Date(hoje);
-      trintaDiasAtras.setDate(hoje.getDate() - 30);
-      if (objData < trintaDiasAtras) return false;
-    } else if (periodo === "custom") {
+    if (periodo === "7" && objData < new Date(hoje).setDate(hoje.getDate() - 7))
+      return false;
+    if (
+      periodo === "30" &&
+      objData < new Date(hoje).setDate(hoje.getDate() - 30)
+    )
+      return false;
+    if (periodo === "custom") {
       const start = document.getElementById("filter-date-start").value;
       const end = document.getElementById("filter-date-end").value;
       if (start && objData < new Date(start + "T00:00:00")) return false;
@@ -534,8 +764,8 @@ function getFilteredObjetos() {
 }
 
 function formatarData(dataISO) {
-  const partes = dataISO.split("-");
-  return `${partes[2]}/${partes[1]}/${partes[0]}`;
+  const p = dataISO.split("-");
+  return `${p[2]}/${p[1]}/${p[0]}`;
 }
 
 function renderObjetos() {
@@ -545,103 +775,86 @@ function renderObjetos() {
   container.innerHTML = "";
 
   if (filtrados.length === 0) {
-    container.innerHTML = `
-            <div class="empty-state">
-                <i class="fa-solid fa-box-open"></i>
-                <h2>Nenhum objeto encontrado</h2>
-                <p style="color: var(--text-secondary); margin-top: 10px;">Ajuste os filtros ou adicione um novo registro.</p>
-            </div>`;
+    container.innerHTML = `<div class="empty-state"><i class="fa-solid fa-box-open"></i><h2>Nenhum objeto encontrado</h2></div>`;
     return;
   }
 
   filtrados.forEach((obj) => {
     const statusClass = obj.status.toLowerCase();
+
+    // Html da imagem se existir
+    const imgHtml = obj.foto
+      ? `<div class="card-img"><img src="${obj.foto}" alt="Foto do Objeto"></div>`
+      : "";
+    // Botão de gerar termo
+    const pdfBtn =
+      obj.status === "Entregue"
+        ? `<button class="btn-action" title="Gerar Termo" onclick="gerarTermoPDF('${obj.id}')"><i class="fa-solid fa-file-pdf"></i></button>`
+        : "";
+
     const card = document.createElement("div");
     card.className = "card";
     card.innerHTML = `
-            <div class="card-header">
-                <div>
-                    <h3 class="card-title">${obj.nome}</h3>
-                    <span class="card-date"><i class="fa-regular fa-calendar"></i> ${formatarData(obj.data)}</span>
-                </div>
+            ${imgHtml}
+            <div class="card-header" style="${obj.foto ? "padding-top:1rem;" : ""}">
+                <div><h3 class="card-title">${obj.nome}</h3><span class="card-date"><i class="fa-regular fa-calendar"></i> ${formatarData(obj.data)}</span></div>
                 <span class="badge ${statusClass}">${obj.status}</span>
             </div>
             <div class="card-body">
                 <div class="card-info-item"><i class="fa-solid fa-location-dot"></i> <span>${obj.local}</span></div>
-                <p class="card-desc">${obj.desc || "<em>Sem descrição informada</em>"}</p>
+                <p class="card-desc">${obj.desc || "<em>Sem descrição</em>"}</p>
             </div>
             <div class="card-actions">
-                <button class="btn-action edit" onclick="openFormModal('${obj.id}')"><i class="fa-solid fa-pen"></i> Editar</button>
-                <button class="btn-action delete" onclick="confirmarExclusao('${obj.id}')"><i class="fa-solid fa-trash"></i> Excluir</button>
-            </div>
-        `;
+                ${pdfBtn}
+                <button class="btn-action edit" onclick="openFormModal('${obj.id}')"><i class="fa-solid fa-pen"></i></button>
+                <button class="btn-action delete" onclick="confirmarExclusao('${obj.id}')"><i class="fa-solid fa-trash"></i></button>
+            </div>`;
     container.appendChild(card);
   });
 }
 
-// ================= HISTÓRICO =================
+// ---- Historico e Backup ----
 function registrarHistorico(tipo, detalhe) {
-  const acao = {
+  appData.historico.unshift({
     id: "hist_" + new Date().getTime(),
     timestamp: new Date().toISOString(),
-    tipo: tipo,
+    tipo,
     objeto: detalhe,
     usuario: currentUser ? currentUser.nome : "Sistema",
-  };
-  appData.historico.unshift(acao);
+  });
 }
 
 function renderHistorico() {
   const container = document.getElementById("historico-container");
   if (!container) return;
   container.innerHTML = "";
-
   if (appData.historico.length === 0) {
-    container.innerHTML = `<div style="padding: 2rem; text-align: center; color: var(--text-secondary);">Nenhuma ação registrada no histórico.</div>`;
+    container.innerHTML = `<div style="padding:2rem;text-align:center;">Nenhuma ação registrada.</div>`;
     return;
   }
 
   const getIconInfo = (tipo) => {
-    switch (tipo) {
-      case "criacao":
-        return {
-          icone: "fa-plus",
-          classe: "icon-criacao",
-          texto: "criou o registro",
-        };
-      case "edicao":
-        return {
-          icone: "fa-pen",
-          classe: "icon-edicao",
-          texto: "editou o registro",
-        };
-      case "exclusao":
-        return {
-          icone: "fa-trash",
-          classe: "icon-exclusao",
-          texto: "excluiu o registro",
-        };
-      case "backup":
-        return {
-          icone: "fa-download",
-          classe: "icon-backup",
-          texto: "realizou backup",
-        };
-      case "importacao":
-        return {
-          icone: "fa-upload",
-          classe: "icon-backup",
-          texto: "importou dados",
-        };
-      case "restauracao":
-        return {
-          icone: "fa-rotate-left",
-          classe: "icon-backup",
-          texto: "restaurou o sistema",
-        };
-      default:
-        return { icone: "fa-circle", classe: "", texto: "realizou uma ação" };
-    }
+    const map = {
+      criacao: { icone: "fa-plus", classe: "icon-criacao", texto: "criou" },
+      edicao: { icone: "fa-pen", classe: "icon-edicao", texto: "editou" },
+      exclusao: {
+        icone: "fa-trash",
+        classe: "icon-exclusao",
+        texto: "excluiu",
+      },
+      backup: { icone: "fa-download", classe: "icon-backup", texto: "ação:" },
+      importacao: {
+        icone: "fa-upload",
+        classe: "icon-backup",
+        texto: "importou",
+      },
+      restauracao: {
+        icone: "fa-rotate-left",
+        classe: "icon-backup",
+        texto: "restaurou",
+      },
+    };
+    return map[tipo] || { icone: "fa-circle", classe: "", texto: "realizou" };
   };
 
   appData.historico.forEach((item) => {
@@ -654,8 +867,7 @@ function renderHistorico() {
             <div class="history-details">
                 <div class="history-title">${item.usuario} ${info.texto} <strong>${item.objeto}</strong></div>
                 <div class="history-meta"><span><i class="fa-regular fa-clock"></i> ${dataFormatada}</span></div>
-            </div>
-        `;
+            </div>`;
     container.appendChild(li);
   });
 }
@@ -664,73 +876,60 @@ function confirmarLimparHistorico() {
   if (appData.historico.length === 0) return;
   const confirmBtn = document.getElementById("confirm-btn");
   document.getElementById("confirm-message").innerHTML =
-    `Tem certeza que deseja apagar <strong>todo o histórico</strong> de ações?`;
-
+    `Apagar <strong>todo o histórico</strong>?`;
   const newBtn = confirmBtn.cloneNode(true);
   confirmBtn.parentNode.replaceChild(newBtn, confirmBtn);
   newBtn.addEventListener("click", () => {
     appData.historico = [];
-    registrarHistorico("exclusao", "Limpeza geral do histórico");
+    registrarHistorico("exclusao", "Limpeza geral");
     salvarDados();
     renderHistorico();
     closeModal("modal-confirm");
+    showToast("Histórico limpo.", "success");
   });
   openModal("modal-confirm");
 }
 
-// ================= BACKUP E RESTAURAÇÃO =================
 function exportData() {
-  registrarHistorico("backup", "Exportação de Arquivo JSON");
+  registrarHistorico("backup", "Exportação JSON");
   salvarDados();
   const dataStr =
     "data:text/json;charset=utf-8," +
     encodeURIComponent(JSON.stringify(appData));
-  const downloadAnchorNode = document.createElement("a");
-  downloadAnchorNode.setAttribute("href", dataStr);
-  downloadAnchorNode.setAttribute(
-    "download",
-    `axo_backup_${new Date().toISOString().split("T")[0]}.json`,
-  );
-  document.body.appendChild(downloadAnchorNode);
-  downloadAnchorNode.click();
-  downloadAnchorNode.remove();
+  const a = document.createElement("a");
+  a.href = dataStr;
+  a.download = `axo_backup_${new Date().toISOString().split("T")[0]}.json`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  showToast("Backup baixado.", "success");
 }
 
 function processarImportacao(event) {
   const file = event.target.files[0];
   if (!file) return;
-
   const confirmBtn = document.getElementById("confirm-btn");
   document.getElementById("confirm-message").innerHTML =
-    `Atenção: A importação irá <strong>sobrescrever TODOS os dados atuais</strong> pelos dados do arquivo.<br><br>Deseja continuar?`;
-
+    `Isso irá <strong>sobrescrever TODOS os dados</strong>. Continuar?`;
   const newBtn = confirmBtn.cloneNode(true);
   confirmBtn.parentNode.replaceChild(newBtn, confirmBtn);
-
   newBtn.addEventListener("click", () => {
     const reader = new FileReader();
     reader.onload = function (e) {
       try {
-        const importedData = JSON.parse(e.target.result);
-        if (
-          importedData.objetos !== undefined &&
-          importedData.historico !== undefined
-        ) {
-          appData = importedData;
-          registrarHistorico("importacao", `Arquivo: ${file.name}`);
+        const json = JSON.parse(e.target.result);
+        if (json.objetos && json.historico) {
+          appData = json;
+          registrarHistorico("importacao", file.name);
           salvarDados();
           aplicarTemaAtual();
-          renderObjetos();
-          renderHistorico();
-          if (currentUser.role === "admin") renderUsuarios();
+          iniciarApp();
           closeModal("modal-confirm");
           document.getElementById("import-file").value = "";
-        } else {
-          alert("Arquivo de backup inválido.");
-          closeModal("modal-confirm");
-        }
+          showToast("Dados importados com sucesso!", "success");
+        } else throw new Error();
       } catch (err) {
-        alert("Erro ao ler o arquivo. Certifique-se que é um JSON válido.");
+        showToast("Arquivo inválido.", "error");
         closeModal("modal-confirm");
       }
     };
@@ -742,28 +941,25 @@ function processarImportacao(event) {
 function restaurarAutoBackup() {
   const confirmBtn = document.getElementById("confirm-btn");
   document.getElementById("confirm-message").innerHTML =
-    `Restaurar o sistema substituirá as alterações recentes pelo último estado salvo automaticamente.<br><br>Confirmar restauração?`;
-
+    `Restaurar para o último estado salvo automaticamente?`;
   const newBtn = confirmBtn.cloneNode(true);
   confirmBtn.parentNode.replaceChild(newBtn, confirmBtn);
-
   newBtn.addEventListener("click", () => {
-    const autoBackupStr = localStorage.getItem("axo_data_autobackup");
-    if (autoBackupStr) {
+    const auto = localStorage.getItem("axo_data_autobackup");
+    if (auto) {
       try {
-        appData = JSON.parse(autoBackupStr);
-        registrarHistorico("restauracao", "Ponto de restauração automático");
+        appData = JSON.parse(auto);
+        registrarHistorico("restauracao", "Auto-backup");
         salvarDados();
         aplicarTemaAtual();
-        renderObjetos();
-        renderHistorico();
-        if (currentUser.role === "admin") renderUsuarios();
+        iniciarApp();
         closeModal("modal-confirm");
+        showToast("Sistema restaurado.", "success");
       } catch (e) {
-        alert("Erro ao restaurar dados.");
+        showToast("Erro ao restaurar.", "error");
       }
     } else {
-      alert("Nenhum auto-backup encontrado no dispositivo.");
+      showToast("Nenhum backup encontrado.", "error");
       closeModal("modal-confirm");
     }
   });

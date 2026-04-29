@@ -19,6 +19,12 @@
       href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"
     />
 
+    <!-- Chart.js para o Dashboard -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <!-- jsPDF para Geração de Termos -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
     <link rel="stylesheet" href="style.css" />
   </head>
   <body>
@@ -65,9 +71,7 @@
               <a
                 href="#"
                 onclick="
-                  alert(
-                    'Procure o Administrador do sistema para resetar sua senha.',
-                  )
+                  showToast('Procure o Administrador do sistema.', 'info')
                 "
                 >Esqueceu a senha?</a
               >
@@ -75,9 +79,6 @@
             <button type="submit" class="btn btn-primary btn-block">
               Acessar Sistema
             </button>
-            <div id="login-error" class="login-error hidden">
-              E-mail ou senha incorretos.
-            </div>
           </form>
         </div>
       </div>
@@ -85,7 +86,7 @@
 
     <!-- ================= APLICAÇÃO PRINCIPAL ================= -->
     <div class="app-container hidden" id="app-container">
-      <!-- Menu Lateral (Sidebar) -->
+      <!-- Menu Lateral -->
       <aside class="sidebar" id="sidebar">
         <div class="sidebar-header">
           <div class="logo">
@@ -100,6 +101,14 @@
         <div class="sidebar-menu">
           <button
             class="nav-item active"
+            data-target="view-dashboard"
+            data-title="Visão Geral"
+          >
+            <i class="fa-solid fa-chart-pie"></i>
+            <span class="nav-text">Dashboard</span>
+          </button>
+          <button
+            class="nav-item"
             data-target="view-objetos"
             data-title="Gerenciamento de Itens"
           >
@@ -115,7 +124,6 @@
             <span class="nav-text">Histórico</span>
           </button>
 
-          <!-- Itens restritos para Admin -->
           <button
             class="nav-item admin-only"
             data-target="view-usuarios"
@@ -142,17 +150,14 @@
         </div>
       </aside>
 
-      <!-- Wrapper do Conteúdo Principal -->
+      <!-- Main Wrapper -->
       <div class="main-wrapper">
-        <!-- Cabeçalho Superior -->
         <header class="top-header">
           <div class="header-left">
             <button class="mobile-menu-btn" id="mobile-menu-btn">
               <i class="fa-solid fa-bars"></i>
             </button>
-            <h2 class="page-title" id="current-page-title">
-              Gerenciamento de Itens
-            </h2>
+            <h2 class="page-title" id="current-page-title">Visão Geral</h2>
           </div>
           <div class="header-right">
             <span class="status-badge">
@@ -182,7 +187,6 @@
                 style="font-size: 0.8rem; margin-left: 5px"
               ></i>
 
-              <!-- Dropdown Menu -->
               <div class="dropdown-menu hidden" id="user-dropdown">
                 <div class="dropdown-header">
                   <strong id="dropdown-name">Nome</strong>
@@ -196,10 +200,68 @@
           </div>
         </header>
 
-        <!-- Conteúdo Principal -->
         <main>
+          <!-- ================= SEÇÃO: DASHBOARD ================= -->
+          <section id="view-dashboard" class="view-section">
+            <div class="section-header">
+              <h1 class="section-title">Dashboard Analítico</h1>
+            </div>
+
+            <div class="dashboard-stats">
+              <div class="stat-card">
+                <div
+                  class="stat-icon"
+                  style="
+                    background: rgba(100, 54, 152, 0.1);
+                    color: var(--cor-roxo);
+                  "
+                >
+                  <i class="fa-solid fa-boxes-stacked"></i>
+                </div>
+                <div class="stat-info">
+                  <h3 id="stat-total">0</h3>
+                  <p>Total de Registros</p>
+                </div>
+              </div>
+              <div class="stat-card">
+                <div
+                  class="stat-icon"
+                  style="
+                    background: rgba(224, 120, 21, 0.1);
+                    color: var(--cor-laranja);
+                  "
+                >
+                  <i class="fa-solid fa-hourglass-half"></i>
+                </div>
+                <div class="stat-info">
+                  <h3 id="stat-aguardando">0</h3>
+                  <p>Aguardando Retirada</p>
+                </div>
+              </div>
+              <div class="stat-card">
+                <div
+                  class="stat-icon"
+                  style="
+                    background: rgba(98, 132, 196, 0.1);
+                    color: var(--cor-azul-medio);
+                  "
+                >
+                  <i class="fa-solid fa-check-double"></i>
+                </div>
+                <div class="stat-info">
+                  <h3 id="stat-entregues">0</h3>
+                  <p>Itens Entregues</p>
+                </div>
+              </div>
+            </div>
+
+            <div class="chart-container">
+              <canvas id="objetosChart"></canvas>
+            </div>
+          </section>
+
           <!-- ================= SEÇÃO: OBJETOS ================= -->
-          <section id="view-objetos" class="view-section">
+          <section id="view-objetos" class="view-section hidden">
             <div class="section-header">
               <h1 class="section-title">Gerenciamento de Itens</h1>
               <button class="btn btn-primary" onclick="openFormModal()">
@@ -207,7 +269,6 @@
               </button>
             </div>
 
-            <!-- Barra de Filtros -->
             <div class="filters-bar">
               <div class="search-box">
                 <i class="fa-solid fa-magnifying-glass"></i>
@@ -217,7 +278,6 @@
                   placeholder="Buscar por nome ou descrição..."
                 />
               </div>
-
               <div class="filter-group">
                 <select id="filter-status">
                   <option value="todos">Todos os Status</option>
@@ -226,7 +286,6 @@
                   <option value="Cancelado">Cancelado</option>
                 </select>
               </div>
-
               <div class="filter-group">
                 <select id="filter-periodo">
                   <option value="todos">Todo o Período</option>
@@ -235,19 +294,13 @@
                   <option value="custom">Personalizado</option>
                 </select>
               </div>
-
               <div class="custom-date-group hidden" id="custom-date-container">
-                <input
-                  type="date"
-                  id="filter-date-start"
-                  title="Data Inicial"
-                />
+                <input type="date" id="filter-date-start" />
                 <span>até</span>
-                <input type="date" id="filter-date-end" title="Data Final" />
+                <input type="date" id="filter-date-end" />
               </div>
             </div>
 
-            <!-- Grid de Cards -->
             <div class="cards-grid" id="objetos-container"></div>
           </section>
 
@@ -262,11 +315,10 @@
                 <i class="fa-solid fa-trash-can"></i> Limpar Histórico
               </button>
             </div>
-
             <ul class="history-list" id="historico-container"></ul>
           </section>
 
-          <!-- ================= SEÇÃO: USUÁRIOS (ADMIN ONLY) ================= -->
+          <!-- ================= SEÇÃO: USUÁRIOS ================= -->
           <section id="view-usuarios" class="view-section hidden">
             <div class="section-header">
               <h1 class="section-title">Gerenciamento de Usuários</h1>
@@ -274,10 +326,7 @@
                 <i class="fa-solid fa-user-plus"></i> Novo Usuário
               </button>
             </div>
-
-            <div class="cards-grid" id="usuarios-container">
-              <!-- Cards de usuários injetados via JS -->
-            </div>
+            <div class="cards-grid" id="usuarios-container"></div>
           </section>
 
           <!-- ================= SEÇÃO: BACKUP ================= -->
@@ -285,27 +334,19 @@
             <div class="section-header">
               <h1 class="section-title">Backup e Restauração</h1>
             </div>
-
             <div class="backup-grid">
               <div class="backup-card">
                 <i class="fa-solid fa-file-export"></i>
                 <h3>Exportar Dados</h3>
-                <p>
-                  Baixe todos os seus registros e histórico em um arquivo JSON
-                  de segurança.
-                </p>
+                <p>Baixe todos os seus registros em JSON.</p>
                 <button class="btn btn-primary" onclick="exportData()">
                   <i class="fa-solid fa-download"></i> Baixar Backup
                 </button>
               </div>
-
               <div class="backup-card">
                 <i class="fa-solid fa-file-import"></i>
                 <h3>Importar Dados</h3>
-                <p>
-                  Carregue um arquivo JSON de backup.
-                  <strong>Atenção:</strong> Isso substituirá os dados atuais.
-                </p>
+                <p>Substituir dados atuais por um JSON de backup.</p>
                 <input
                   type="file"
                   id="import-file"
@@ -320,20 +361,15 @@
                   <i class="fa-solid fa-upload"></i> Selecionar Arquivo
                 </button>
               </div>
-
               <div class="backup-card">
                 <i class="fa-solid fa-clock-rotate-left"></i>
                 <h3>Restaurar Auto-Backup</h3>
-                <p>
-                  Restaure o sistema para o último ponto de recuperação salvo
-                  automaticamente.
-                </p>
+                <p>Voltar ao último ponto salvo automaticamente.</p>
                 <button class="btn btn-outline" onclick="restaurarAutoBackup()">
                   <i class="fa-solid fa-rotate-left"></i> Restaurar
                 </button>
               </div>
             </div>
-
             <div class="backup-status">
               <i
                 class="fa-solid fa-circle-info"
@@ -359,8 +395,6 @@
     </div>
 
     <!-- ================= MODAIS ================= -->
-
-    <!-- Modal Formulário Objeto -->
     <div class="modal-overlay" id="modal-form">
       <div class="modal-content">
         <div class="modal-header">
@@ -371,6 +405,31 @@
         </div>
         <form id="objeto-form" onsubmit="salvarObjeto(event)">
           <input type="hidden" id="obj-id" />
+
+          <div class="photo-upload-container">
+            <label for="obj-foto" class="photo-upload-label">
+              <i class="fa-solid fa-camera"></i>
+              <span>Adicionar Foto (Opcional)</span>
+            </label>
+            <input
+              type="file"
+              id="obj-foto"
+              accept="image/*"
+              class="hidden"
+              onchange="processarImagem(event)"
+            />
+            <div id="photo-preview" class="photo-preview hidden">
+              <img id="preview-img" src="" alt="Preview" />
+              <button
+                type="button"
+                class="remove-photo-btn"
+                onclick="removerFoto()"
+              >
+                ×
+              </button>
+            </div>
+          </div>
+
           <div class="form-group">
             <label for="obj-nome">Nome do Objeto *</label>
             <input
@@ -389,17 +448,19 @@
               placeholder="Ex: Recepção, Estacionamento..."
             />
           </div>
-          <div class="form-group">
-            <label for="obj-data">Data *</label>
-            <input type="date" id="obj-data" required />
-          </div>
-          <div class="form-group">
-            <label for="obj-status">Status *</label>
-            <select id="obj-status" required>
-              <option value="Aguardando">Aguardando</option>
-              <option value="Entregue">Entregue</option>
-              <option value="Cancelado">Cancelado</option>
-            </select>
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem">
+            <div class="form-group">
+              <label for="obj-data">Data *</label>
+              <input type="date" id="obj-data" required />
+            </div>
+            <div class="form-group">
+              <label for="obj-status">Status *</label>
+              <select id="obj-status" required>
+                <option value="Aguardando">Aguardando</option>
+                <option value="Entregue">Entregue</option>
+                <option value="Cancelado">Cancelado</option>
+              </select>
+            </div>
           </div>
           <div class="form-group">
             <label for="obj-desc">Descrição / Detalhes</label>
@@ -425,8 +486,9 @@
       </div>
     </div>
 
-    <!-- Modal Formulário Usuário -->
+    <!-- Modal Usuário -->
     <div class="modal-overlay" id="modal-user-form">
+      <!-- Mesmo código anterior -->
       <div class="modal-content">
         <div class="modal-header">
           <h2 class="modal-title" id="modal-user-title">Novo Usuário</h2>
@@ -436,67 +498,36 @@
         </div>
         <form id="usuario-form" onsubmit="salvarUsuario(event)">
           <input type="hidden" id="usr-id" />
-
           <div class="form-group">
-            <label for="usr-nome">Nome Completo *</label>
-            <input
-              type="text"
-              id="usr-nome"
-              required
-              placeholder="Nome do colaborador"
-            />
+            <label>Nome Completo *</label
+            ><input type="text" id="usr-nome" required />
           </div>
-
           <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem">
             <div class="form-group">
-              <label for="usr-cpf">CPF *</label>
-              <input
-                type="text"
-                id="usr-cpf"
-                required
-                placeholder="000.000.000-00"
-              />
+              <label>CPF *</label><input type="text" id="usr-cpf" required />
             </div>
             <div class="form-group">
-              <label for="usr-telefone">Telefone *</label>
-              <input
-                type="text"
-                id="usr-telefone"
-                required
-                placeholder="(00) 00000-0000"
-              />
+              <label>Telefone *</label
+              ><input type="text" id="usr-telefone" required />
             </div>
           </div>
-
           <div class="form-group">
-            <label for="usr-email">E-mail (Login) *</label>
-            <input
-              type="email"
-              id="usr-email"
-              required
-              placeholder="email@empresa.com"
-            />
+            <label>E-mail *</label
+            ><input type="email" id="usr-email" required />
           </div>
-
           <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem">
             <div class="form-group">
-              <label for="usr-senha">Senha *</label>
-              <input
-                type="password"
-                id="usr-senha"
-                required
-                placeholder="Senha de acesso"
-              />
+              <label>Senha *</label
+              ><input type="password" id="usr-senha" required />
             </div>
             <div class="form-group">
-              <label for="usr-role">Nível de Acesso *</label>
+              <label>Nível *</label>
               <select id="usr-role" required>
                 <option value="funcionario">Funcionário</option>
                 <option value="admin">Administrador</option>
               </select>
             </div>
           </div>
-
           <div class="modal-footer">
             <button
               type="button"
@@ -542,7 +573,9 @@
       </div>
     </div>
 
-    <!-- ================= JAVASCRIPT ================= -->
+    <!-- Container de Notificações (Toasts) -->
+    <div id="toast-container" class="toast-container"></div>
+
     <script src="script.js"></script>
   </body>
 </html>
